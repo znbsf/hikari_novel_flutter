@@ -585,6 +585,7 @@ class HorizontalReader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final generation = controller.progressIdentity;
     final usePaperCurl = controller.preferences.state.value.pageTurningAnimation;
     final horizontalReader = HorizontalReadPage(
       controller.text.value,
@@ -612,18 +613,7 @@ class HorizontalReader extends StatelessWidget {
       onRightTap: controller.nextPage,
       onReachStart: controller.prevChapter,
       onReachEnd: controller.nextChapter,
-      onPageChanged: (index, max) {
-        controller.currentIndex.value = index;
-        controller.maxPage.value = max;
-        if (max == 1 && index == 0) {
-          //仅一页的情况下
-          controller.horizontalProgress.value = 100;
-          controller.setReadHistory(); //立即更新历史阅读记录
-        } else if (max > 0) {
-          controller.horizontalProgress.value = int.parse(((index + 1) / max * 100.0).toStringAsFixed(0)).clamp(0, 100);
-          //由controller的debounce监听currentIndex变化，判断是否更新历史阅读记录
-        }
-      },
+      onPageChanged: (index, max) => controller.updateHorizontalProgress(generation, index, max),
       onViewImage: (index) => Get.toNamed(RoutePath.photo, arguments: {"gallery_mode": true, "list": controller.images, "index": index}),
     );
 
@@ -632,14 +622,8 @@ class HorizontalReader extends StatelessWidget {
     }
 
     return EasyRefresh(
-      header: MaterialHeader2(
-        triggerOffset: 80,
-        child: RefreshIndicatorBox(icon: Icons.arrow_circle_left_outlined),
-      ),
-      footer: MaterialFooter2(
-        triggerOffset: 80,
-        child: RefreshIndicatorBox(icon: Icons.arrow_circle_right_outlined),
-      ),
+      header: MaterialHeader2(triggerOffset: 80, child: RefreshIndicatorBox(icon: Icons.arrow_circle_left_outlined)),
+      footer: MaterialFooter2(triggerOffset: 80, child: RefreshIndicatorBox(icon: Icons.arrow_circle_right_outlined)),
       refreshOnStart: false,
       onRefresh: controller.prevChapter,
       onLoad: controller.nextChapter,

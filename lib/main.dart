@@ -53,7 +53,7 @@ void main() async {
   FlutterNativeSplash.remove();
 
   runApp(const App());
-  TtsService.instance.ensureReady(); //首屏之后再预热 TTS 引擎
+  TtsService.instance.warmUpInBackground(); //首屏之后再预热 TTS 引擎
 }
 
 class App extends StatelessWidget {

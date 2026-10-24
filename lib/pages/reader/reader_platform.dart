@@ -11,13 +11,17 @@ import '../../models/reader_direction.dart';
 import 'reader_settings.dart';
 
 class ReaderPlatform {
-  ReaderPlatform({required this.settings, required this.prevPage, required this.nextPage});
+  ReaderPlatform({required this.settings, required this.prevPage, required this.nextPage, this._readBatteryLevel, this._batteryChanges});
 
   static const _volumeKeyChannel = MethodChannel('hikari/reader_volume_keys');
   final ReaderSettings Function() settings;
   final VoidCallback prevPage;
   final VoidCallback nextPage;
   final _battery = Battery();
+  final Future<int> Function()? _readBatteryLevel;
+  final Stream<BatteryState>? _batteryChanges;
+  bool _initialized = false;
+  int _batteryGeneration = 0;
   StreamSubscription<BatteryState>? _batterySubscription;
   Timer? _clockTimer;
   final RxInt batteryLevel = 0.obs;
@@ -25,30 +29,44 @@ class ReaderPlatform {
   bool _closed = false;
 
   void onInit() {
+    if (_closed || _initialized) return;
+    _initialized = true;
     _volumeKeyChannel.setMethodCallHandler(_handleVolumeKey);
     _setVolumeKeyHandlingEnabled(_volumeKeysEnabled(settings()));
-    _battery.batteryLevel.then((l) => batteryLevel.value = l);
-    _batterySubscription = _battery.onBatteryStateChanged.listen((_) async {
-      batteryLevel.value = await _battery.batteryLevel;
-    });
+    _refreshBattery();
+    _batterySubscription = (_batteryChanges ?? _battery.onBatteryStateChanged).listen((_) => _refreshBattery());
     _scheduleClock();
   }
 
+  Future<void> _refreshBattery() async {
+    final generation = ++_batteryGeneration;
+    try {
+      final level = await (_readBatteryLevel?.call() ?? _battery.batteryLevel);
+      if (!_closed && generation == _batteryGeneration) batteryLevel.value = level;
+    } catch (_) {
+      // Battery support may be unavailable; retain the last observed level.
+    }
+  }
+
   void _scheduleClock() {
+    if (_closed) return;
     final now = DateTime.now();
     final nextMinute = DateTime(now.year, now.month, now.day, now.hour, now.minute + 1);
     _clockTimer = Timer(nextMinute.difference(now), () {
+      if (_closed) return;
       currentTime.value = DateTime.now();
       _scheduleClock();
     });
   }
 
   void onReady() {
+    if (_closed) return;
     if (settings().wakeLock) WakelockPlus.toggle(enable: true);
     _applyReaderSystemUi(settings().immersionMode);
   }
 
   void settingsChanged(ReaderSettings previous, ReaderSettings next) {
+    if (_closed) return;
     if (previous.direction != next.direction || previous.volumeKeyPageTurning != next.volumeKeyPageTurning) {
       _setVolumeKeyHandlingEnabled(_volumeKeysEnabled(next));
     }
@@ -72,6 +90,8 @@ class ReaderPlatform {
     if (!Platform.isAndroid) return;
     try {
       await _volumeKeyChannel.invokeMethod('setEnabled', {'enabled': enabled});
+    } on MissingPluginException {
+      // Optional native implementation.
     } on PlatformException {
       // 非 Android 平台可以不提供原生音量键支持。
     }
@@ -87,7 +107,9 @@ class ReaderPlatform {
   }
 
   void onClose() {
+    if (_closed) return;
     _closed = true;
+    _batteryGeneration++;
     _volumeKeyChannel.setMethodCallHandler(null);
     _setVolumeKeyHandlingEnabled(false);
     _batterySubscription?.cancel();

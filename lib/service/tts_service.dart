@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -32,8 +33,28 @@ class TtsService extends GetxService {
   final isPaused = false.obs;
   final lastSpokenText = ''.obs;
 
-  bool _pauseRequested = false;
-  bool _stopRequested = false;
+  int _session = 0;
+  Completer<dynamic>? _utteranceSignal;
+  Future<void> _controls = Future<void>.value();
+
+  int _invalidatePlayback() {
+    final session = ++_session;
+    final signal = _utteranceSignal;
+    _utteranceSignal = null;
+    if (signal != null && !signal.isCompleted) signal.complete(0);
+    return session;
+  }
+
+  bool _isCurrent(int session) => session == _session && enabled.value;
+
+  // Control calls never wait for a speak Future: stop/pause must interrupt it.
+  Future<void> _control(Future<dynamic> Function() action) {
+    final operation = _controls.then((_) async {
+      await action();
+    });
+    _controls = operation.catchError((Object _) {});
+    return operation;
+  }
 
   final isSessionActive = false.obs;
   final sessionTitle = ''.obs;
@@ -49,28 +70,22 @@ class TtsService extends GetxService {
   static const List<String> _preferredLocales = <String>['zh-CN', 'zh-TW', 'zh-HK', 'en-US'];
 
   void init() {
-    _tts.setStartHandler(() {
-      isPlaying.value = true;
-      isPaused.value = false;
+    // flutter_tts global callbacks carry no utterance identity. In particular,
+    // a delayed onCancel/onComplete cannot safely change the current session.
+    // Use the awaited speak call to advance chunks instead. The native plugin
+    // itself stores a global result, so arbitrarily late native delivery still
+    // requires utterance IDs in the plugin for a complete guarantee.
+    // External native cancellations that never settle speak are likewise not
+    // distinguishable from a delayed cancellation of an earlier utterance.
+    // Android does not complete that Future on engine errors, so retain its
+    // error event as a fallback. The plugin gives this event no utterance ID:
+    // an extremely late native error cannot be attributed perfectly in Dart.
+    _tts.setErrorHandler((message) {
+      final signal = _utteranceSignal;
+      if (signal != null && !signal.isCompleted) {
+        signal.completeError(StateError('TTS engine error: $message'));
+      }
     });
-    _tts.setCompletionHandler(() {
-      _onChunkCompleted();
-    });
-    _tts.setCancelHandler(_onCancelledOrError);
-    _tts.setPauseHandler(() {
-      _pauseRequested = false;
-      isPlaying.value = false;
-      isPaused.value = true;
-    });
-    _tts.setContinueHandler(() {
-      _pauseRequested = false;
-      isPlaying.value = true;
-      isPaused.value = false;
-    });
-    _tts.setErrorHandler((_) {
-      _onCancelledOrError();
-    });
-
     enabled.value = LocalStorageService.instance.readerTtsEnabled.value;
     engine.value = LocalStorageService.instance.readerTtsEngine.value;
     voice.value = LocalStorageService.instance.readerTtsVoice.value;
@@ -79,16 +94,28 @@ class TtsService extends GetxService {
     volume.value = LocalStorageService.instance.readerTtsVolume.value;
   }
 
-  /// 耗时的引擎/语音初始化只执行一次；失败时记录日志并允许下次重试
-  Future<void> ensureReady() => _ready ??= _warmUp().catchError((Object e) {
-    Log.e("TTS 初始化失败: $e");
-    _ready = null;
-  });
+  /// Concurrent callers share initialization; failure stays observable and retryable.
+  Future<void> ensureReady() => _ready ??= _initialize();
+
+  Future<void> _initialize() async {
+    try {
+      await _warmUp();
+    } catch (_) {
+      _ready = null;
+      rethrow;
+    }
+  }
+
+  Future<void> warmUpInBackground() async {
+    try {
+      await ensureReady();
+    } catch (error) {
+      Log.e("TTS 初始化失败: $error");
+    }
+  }
 
   Future<void> _warmUp() async {
-    try {
-      await _tts.awaitSpeakCompletion(true);
-    } catch (_) {}
+    await _tts.awaitSpeakCompletion(true);
 
     await _tts.setSpeechRate(rate.value);
     await _tts.setPitch(pitch.value);
@@ -116,17 +143,6 @@ class TtsService extends GetxService {
       voice.value = null;
       LocalStorageService.instance.readerTtsVoice.value = null;
     }
-  }
-
-  void _onCancelledOrError() {
-    if (_pauseRequested) {
-      _pauseRequested = false;
-      isPlaying.value = false;
-      isPaused.value = true;
-      return;
-    }
-    _stopRequested = false;
-    _endSession();
   }
 
   String displayEngineName(String enginePackage) {
@@ -227,19 +243,11 @@ class TtsService extends GetxService {
     if (!enabled.value) return;
 
     if (restartIfPlaying && (isPlaying.value || isPaused.value || isSessionActive.value)) {
-      try {
-        await pauseSession();
-      } catch (_) {}
-
+      final paused = pauseSession();
+      final session = _session;
+      await paused;
       await _prepareForSpeak();
-
-      try {
-        await resumeSession();
-      } catch (_) {
-        if (lastSpokenText.value.trim().isNotEmpty) {
-          await speak(lastSpokenText.value);
-        }
-      }
+      if (_isCurrent(session)) await resumeSession();
       return;
     }
 
@@ -278,123 +286,116 @@ class TtsService extends GetxService {
 
   bool get isMultiTtsInstalled => engines.contains(multiTtsEnginePackage);
 
-  Future<void> speak(String text) async {
+  Future<void> speak(String text) => _start(text, chapter: false);
+
+  Future<void> startChapter(String fullText, {String title = ''}) => _start(fullText, chapter: true, title: title);
+
+  Future<void> _start(String text, {required bool chapter, String title = ''}) async {
     if (!enabled.value) return;
-    await _prepareForSpeak();
-    isSessionActive.value = false;
-    _chunks = const [];
-    _chunkIndex = 0;
-    sessionProgress.value = 0.0;
-    lastSpokenText.value = text;
-    final r = await _tts.speak(text);
-    _handleSpeakResult(r);
-  }
-
-  Future<void> startChapter(String fullText, {String title = ''}) async {
-    if (!enabled.value) return;
-    await _prepareForSpeak();
-    final cleaned = fullText.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (cleaned.isEmpty) return;
-
-    sessionTitle.value = title;
-    isSessionActive.value = true;
-    isPaused.value = false;
-
-    _chunks = _splitToChunks(cleaned);
-    _chunkIndex = 0;
-    sessionProgress.value = 0.0;
-
-    lastSpokenText.value = cleaned;
-    await _speakCurrentChunk();
+    final session = _invalidatePlayback();
+    _endSession();
+    // Queue interruption immediately, including while initialization is pending.
+    final stopped = _control(_tts.stop);
+    try {
+      await stopped;
+      await _prepareForSpeak();
+      if (!_isCurrent(session)) return;
+      final cleaned = chapter ? text.replaceAll(RegExp(r'\s+'), ' ').trim() : text;
+      if (cleaned.trim().isEmpty) return;
+      sessionTitle.value = title;
+      lastSpokenText.value = cleaned;
+      isSessionActive.value = chapter;
+      _chunks = chapter ? _splitToChunks(cleaned) : [cleaned];
+      _chunkIndex = 0;
+      await _play(session);
+    } catch (error) {
+      _playbackFailed(session, error);
+    }
   }
 
   Future<void> resumeSession() async {
-    if (!enabled.value) return;
-    await _prepareForSpeak();
-    if (!isSessionActive.value) {
-      if (lastSpokenText.value.trim().isNotEmpty) {
-        await speak(lastSpokenText.value);
-      }
-      return;
-    }
-    if (isPaused.value) {
-      final dynamic ttsDyn = _tts;
-      try {
-        isPaused.value = false;
-        await ttsDyn.continueSpeaking();
+    if (!enabled.value || isPlaying.value) return;
+    final session = _invalidatePlayback();
+    try {
+      await _controls;
+      await _prepareForSpeak();
+      if (!_isCurrent(session)) return;
+      if (_chunks.isEmpty) {
+        if (lastSpokenText.value.trim().isNotEmpty) await speak(lastSpokenText.value);
         return;
-      } catch (_) {
-        try {
-          isPaused.value = false;
-          await ttsDyn.resume();
-          return;
-        } catch (_) {}
       }
+      // flutter_tts 4.2.5 resumes Android/iOS pause through speak(same text).
+      // Do not stop here: stop clears the native pause position.
+      isPaused.value = false;
+      await _play(session);
+    } catch (error) {
+      _playbackFailed(session, error);
     }
-    isPaused.value = false;
-    await _speakCurrentChunk();
   }
 
   Future<void> pauseSession() async {
     if (!enabled.value) return;
-    _pauseRequested = true;
-    _stopRequested = false;
-    try {
-      await _tts.pause();
-    } catch (_) {
-      try {
-        await _tts.stop();
-      } catch (_) {}
-    }
+    final session = _invalidatePlayback();
     isPlaying.value = false;
     isPaused.value = true;
+    try {
+      await _control(_tts.pause);
+    } catch (_) {
+      if (!_isCurrent(session)) return;
+      try {
+        await _control(_tts.stop);
+      } catch (_) {}
+    }
   }
 
-  Future<void> pause() async {
-    if (isSessionActive.value) {
-      await pauseSession();
-      return;
-    }
-    try {
-      _pauseRequested = true;
-      _stopRequested = false;
-      await _tts.pause();
-    } catch (_) {}
-  }
+  Future<void> pause() => pauseSession();
 
   Future<void> stop() async {
-    _stopRequested = true;
-    _pauseRequested = false;
-    try {
-      await _tts.stop();
-    } catch (_) {}
+    _invalidatePlayback();
     _endSession();
+    try {
+      await _control(_tts.stop);
+    } catch (error) {
+      Log.e("TTS 停止失败: $error");
+    }
   }
 
-  Future<void> _speakCurrentChunk() async {
-    if (!isSessionActive.value) return;
-    if (_chunkIndex < 0 || _chunkIndex >= _chunks.length) {
-      _endSession();
-      return;
+  Future<void> _play(int session) async {
+    while (_isCurrent(session) && !isPaused.value && _chunkIndex < _chunks.length) {
+      final index = _chunkIndex;
+      isPlaying.value = true;
+      final signal = Completer<dynamic>();
+      _utteranceSignal = signal;
+      dynamic result;
+      try {
+        result = await Future.any<dynamic>([_tts.speak(_chunks[index]), signal.future]);
+      } finally {
+        if (identical(_utteranceSignal, signal)) _utteranceSignal = null;
+      }
+      if (!_isCurrent(session)) return;
+      if (result is int && result == 0) {
+        _playbackFailed(session, StateError('TTS speak failed'));
+        return;
+      }
+      _chunkIndex = index + 1;
+      sessionProgress.value = (_chunkIndex / _chunks.length).clamp(0.0, 1.0);
     }
-    final chunk = _chunks[_chunkIndex];
-    try {
-      final r = await _tts.speak(chunk);
-      _handleSpeakResult(r);
-    } catch (_) {
-      _endSession();
-      return;
-    }
-    sessionProgress.value = _chunks.isEmpty ? 0.0 : (_chunkIndex / _chunks.length).clamp(0.0, 1.0);
+    if (_isCurrent(session)) _endSession();
+  }
+
+  void _playbackFailed(int session, Object error) {
+    if (!_isCurrent(session)) return;
+    _endSession();
+    Log.e("TTS 播放失败: $error");
+    final context = Get.context;
+    if (context != null) showSnackBar(message: "listen_to_books_failed_tip".tr, context: context);
   }
 
   Future<void> _prepareForSpeak() async {
     await ensureReady();
-    try {
-      await _tts.setSpeechRate(rate.value);
-      await _tts.setPitch(pitch.value);
-      await _tts.setVolume(volume.value);
-    } catch (_) {}
+    await _tts.setSpeechRate(rate.value);
+    await _tts.setPitch(pitch.value);
+    await _tts.setVolume(volume.value);
     await _applyBestLanguage();
   }
 
@@ -424,39 +425,6 @@ class TtsService extends GetxService {
     } catch (_) {
       return false;
     }
-  }
-
-  void _handleSpeakResult(dynamic r) {
-    if (r is int && r == 0) {
-      if (_stopRequested || _pauseRequested) {
-        Log.d("[TtsService] speak() returned 0 but stop/pause was requested; suppressing error");
-        return;
-      }
-
-      Log.d("[TtsService] speak() returned 0 (failed)");
-
-      isPlaying.value = false;
-      isPaused.value = false;
-      if (isSessionActive.value) {
-        _endSession();
-      }
-      showSnackBar(message: "listen_to_books_failed_tip".tr, context: Get.context!);
-    }
-  }
-
-  void _onChunkCompleted() {
-    if (!isSessionActive.value) {
-      isPlaying.value = false;
-      isPaused.value = false;
-      return;
-    }
-    if (isPaused.value) return;
-    _chunkIndex += 1;
-    if (_chunkIndex >= _chunks.length) {
-      _endSession();
-      return;
-    }
-    _speakCurrentChunk();
   }
 
   void _endSession() {

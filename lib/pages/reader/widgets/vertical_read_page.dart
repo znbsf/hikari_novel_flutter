@@ -277,20 +277,15 @@ class VerticalReader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final generation = controller.progressIdentity;
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: () => controller.showBar.value = !controller.showBar.value,
       child: SizedBox(
         height: double.infinity,
         child: EasyRefresh(
-          header: MaterialHeader2(
-            triggerOffset: 80,
-            child: RefreshIndicatorBox(icon: Icons.arrow_circle_up),
-          ),
-          footer: MaterialFooter2(
-            triggerOffset: 80,
-            child: RefreshIndicatorBox(icon: Icons.arrow_circle_down),
-          ),
+          header: MaterialHeader2(triggerOffset: 80, child: RefreshIndicatorBox(icon: Icons.arrow_circle_up)),
+          footer: MaterialFooter2(triggerOffset: 80, child: RefreshIndicatorBox(icon: Icons.arrow_circle_down)),
           refreshOnStart: false,
           onRefresh: controller.prevChapter,
           onLoad: controller.nextChapter,
@@ -303,16 +298,7 @@ class VerticalReader extends StatelessWidget {
             style: style,
             paraSpacing: controller.preferences.state.value.readerParaSpacing,
             paraIndent: controller.preferences.state.value.readerParaIndent,
-            onScroll: (position, max) {
-              if (max == 0 && position == 0) {
-                controller.currentLocation.value = 0;
-                controller.verticalProgress.value = 100;
-                controller.setReadHistory();
-              } else if (max > 0) {
-                controller.currentLocation.value = position.toInt();
-                controller.verticalProgress.value = ((position.toInt() / max.toInt()) * 100).clamp(0, 100).toInt();
-              }
-            },
+            onScroll: (position, max) => controller.updateVerticalProgress(generation, position, max),
           ),
         ),
       ),

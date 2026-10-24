@@ -26,6 +26,31 @@ class Pref<T> {
 
   set value(T v) => _box.put(key, encode == null ? v : encode!(v));
 
+  Future<void> write(T v) => _box.put(key, encode == null ? v : encode!(v));
+
+  /// Critical references must share one box and one Hive transaction.
+  /// Hive rolls its in-memory transaction back when backend.writeFrames fails.
+  static Future<void> writeAll(Map<Pref<dynamic>, dynamic> values) async {
+    if (values.isEmpty) return;
+    final box = values.keys.first._box;
+    final encoded = <String, dynamic>{};
+    for (final entry in values.entries) {
+      if (!identical(entry.key._box, box)) {
+        throw ArgumentError('Grouped preferences must belong to the same box');
+      }
+      encoded[entry.key.key] = entry.key.encode == null ? entry.value : entry.key.encode!(entry.value);
+    }
+    try {
+      await box.putAll(encoded);
+    } catch (_) {
+      // Hive also runs compaction AFTER committing. In that case the new
+      // references are already committed; treating them as rolled back could
+      // delete a file that the box now references.
+      if (encoded.entries.every((entry) => box.get(entry.key) == entry.value)) return;
+      rethrow;
+    }
+  }
+
   static Pref<E> enumOf<E extends Enum>(List<E> values, Box<dynamic> box, String key, E defaultValue) =>
       Pref<E>(box, key, defaultValue, decode: (v) => values[v as int], encode: (v) => v.index);
 

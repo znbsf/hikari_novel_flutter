@@ -11,7 +11,6 @@ import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 import '../../../models/dual_page_mode.dart';
 import '../../../models/reader_direction.dart';
 import '../controller.dart';
-import '../reader_assets.dart' as assets;
 import '../reader_settings.dart';
 
 class ReaderSettingPage extends StatelessWidget {
@@ -218,24 +217,28 @@ class ReaderSettingPage extends StatelessWidget {
             leading: const Icon(Icons.format_shapes_outlined),
             trailing: const Icon(Icons.keyboard_arrow_down),
             onTap: () => showNormalListSheet(context, values: [(0, "system_font".tr), (1, "custom_font".tr)], title: "font".tr).then((value) async {
+              if (!context.mounted) return;
               if (value == 0) {
-                await assets.deleteFontDir();
-                ReaderFields.textStyleFilePath.setIn(controller.preferences, null);
-                ReaderFields.textFamily.setIn(controller.preferences, null);
-                controller.preferences.checkFontFile(false);
-                showSnackBar(message: "set_system_font_successfully".tr, context: Get.context!);
+                try {
+                  await controller.preferences.clearTextStyleFile();
+                  if (!context.mounted) return;
+                  showSnackBar(message: "set_system_font_successfully".tr, context: context);
+                } catch (_) {
+                  if (!context.mounted) return;
+                  showSnackBar(message: "set_font_failed".tr, context: context);
+                }
               } else if (value == 1) {
                 final result = await controller.preferences.pickTextStyleFile();
+                if (!context.mounted) return;
                 switch (result) {
                   case null:
                     return;
                   case true:
                     {
-                      showSnackBar(message: "set_font_successfully".tr, context: Get.context!);
-                      controller.preferences.checkFontFile(false);
+                      showSnackBar(message: "set_font_successfully".tr, context: context);
                     }
                   case false:
-                    showSnackBar(message: "set_font_failed".tr, context: Get.context!);
+                    showSnackBar(message: "set_font_failed".tr, context: context);
                 }
               }
             }),
@@ -284,19 +287,27 @@ class ReaderSettingPage extends StatelessWidget {
           trailing: const Icon(Icons.keyboard_arrow_down),
           onTap: () => showNormalListSheet(context, values: [(0, "change_background_image".tr), (1, "reset_background_image".tr)], title: "background_image".tr)
               .then((value) async {
+                if (!context.mounted) return;
                 if (value == 0) {
-                  final result = await controller.preferences.pickBgImageFile(Get.context!.isDarkMode);
+                  final result = await controller.preferences.pickBgImageFile(context.isDarkMode);
+                  if (!context.mounted) return;
                   switch (result) {
                     case null:
                       return;
                     case true:
-                      showSnackBar(message: "set_background_successfully".tr, context: Get.context!);
+                      showSnackBar(message: "set_background_successfully".tr, context: context);
                     case false:
-                      showSnackBar(message: "set_background_failed".tr, context: Get.context!);
+                      showSnackBar(message: "set_background_failed".tr, context: context);
                   }
                 } else if (value == 1) {
-                  await controller.preferences.clearReaderBgImage(Get.context!.isDarkMode);
-                  showSnackBar(message: "reset_background_image_successfully".tr, context: Get.context!);
+                  try {
+                    await controller.preferences.clearReaderBgImage(context.isDarkMode);
+                    if (!context.mounted) return;
+                    showSnackBar(message: "reset_background_image_successfully".tr, context: context);
+                  } catch (_) {
+                    if (!context.mounted) return;
+                    showSnackBar(message: "set_background_failed".tr, context: context);
+                  }
                 }
               }),
         ),
@@ -306,6 +317,18 @@ class ReaderSettingPage extends StatelessWidget {
 
   Widget _buildListen(BuildContext context) {
     final tts = TtsService.instance;
+    Future<bool> runTts(Future<void> Function() action) async {
+      try {
+        await action();
+        return context.mounted;
+      } catch (_) {
+        if (context.mounted) {
+          showSnackBar(message: "listen_to_books_failed_tip".tr, context: context);
+        }
+        return false;
+      }
+    }
+
     return ListView(
       children: [
         Obx(
@@ -336,10 +359,11 @@ class ReaderSettingPage extends StatelessWidget {
                     leading: const Icon(Icons.settings_outlined),
                     trailing: const Icon(Icons.keyboard_arrow_down),
                     onTap: () async {
-                      await tts.ensureReady();
+                      if (!await runTts(tts.ensureReady)) return;
                       await tts.refreshEngines();
+                      if (!context.mounted || !tts.enabled.value) return;
                       showNormalListSheet(
-                        Get.context!,
+                        context,
                         values: [(null, "auto".tr), ...tts.engines.map((value) => (value, tts.displayEngineName(value)))],
                         title: "tts_engine".tr,
                       ).then((value) async {
@@ -360,10 +384,11 @@ class ReaderSettingPage extends StatelessWidget {
                     leading: const Icon(Icons.surround_sound_outlined),
                     trailing: const Icon(Icons.keyboard_arrow_down),
                     onTap: () async {
-                      await tts.ensureReady();
+                      if (!await runTts(tts.ensureReady)) return;
                       await tts.refreshVoices();
+                      if (!context.mounted || !tts.enabled.value) return;
                       showNormalListSheet(
-                        Get.context!,
+                        context,
                         values: [(null, "auto".tr), ...tts.voices.map((value) => (value, "${value["name"]}(${value["locale"]})"))],
                         title: "timbre".tr,
                       ).then((value) async {
@@ -415,7 +440,7 @@ class ReaderSettingPage extends StatelessWidget {
                   child: SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () => tts.refreshSettings(restartIfPlaying: true),
+                      onPressed: () => runTts(() => tts.refreshSettings(restartIfPlaying: true)),
                       icon: const Icon(Icons.refresh),
                       label: Text("refresh_setting".tr),
                     ),

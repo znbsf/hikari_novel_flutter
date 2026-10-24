@@ -9,6 +9,7 @@ import 'package:hikari_novel_flutter/pages/reader/widgets/vertical_read_page.dar
 import 'package:hikari_novel_flutter/widgets/state_page.dart';
 
 import '../../common/constants.dart';
+import '../../common/extension.dart';
 import '../../models/page_state.dart';
 import 'widgets/reader_bottom_bar.dart';
 import 'widgets/reader_status_bar.dart';
@@ -34,11 +35,22 @@ class _ReaderPageState extends State<ReaderPage> {
         : controller.preferences.state.value.bottomMargin,
   );
 
-  TextStyle get textStyle => TextStyle(
+  bool _appearanceInitialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_appearanceInitialized) {
+      _appearanceInitialized = true;
+      controller.preferences.initialize(Theme.of(context).brightness);
+    }
+  }
+
+  TextStyle _textStyle(BuildContext context) => TextStyle(
     fontFamily: controller.preferences.state.value.textFamily,
     height: controller.preferences.state.value.lineSpacing,
     fontSize: controller.preferences.state.value.fontSize,
-    color: controller.preferences.textColor ?? Theme.of(Get.context!).colorScheme.onSurface,
+    color: controller.preferences.textColor ?? Theme.of(context).colorScheme.onSurface,
   );
 
   bool _useOverlayBottomStatusBar() {
@@ -53,6 +65,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   Widget build(BuildContext context) {
+    controller.autoDualPage = context.shouldAutoUseDualPage();
     return Scaffold(
       body: Stack(
         children: [
@@ -99,16 +112,18 @@ class _ReaderPageState extends State<ReaderPage> {
       if (controller.pageState.value != PageState.success) return Container();
       if (controller.preferences.state.value.direction == ReaderDirection.upToDown) {
         return VerticalReader(
+          key: ValueKey(controller.contentGeneration),
           controller: controller,
           verticalReadPageKey: _verticalReadPageKey,
           padding: _contentPadding(context, inPageStatusBar: false),
-          style: textStyle,
+          style: _textStyle(context),
         );
       }
       return HorizontalReader(
+        key: ValueKey(controller.contentGeneration),
         controller: controller,
         padding: _contentPadding(context, inPageStatusBar: _useInPageBottomStatusBar()),
-        style: textStyle,
+        style: _textStyle(context),
         footer: _useInPageBottomStatusBar() ? ReaderStatusBar(controller: controller, inPage: true) : null,
       );
     });

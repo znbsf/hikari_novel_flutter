@@ -121,9 +121,17 @@ class ReaderSettings {
 }
 
 class ReaderPreferences {
-  ReaderPreferences(this.storage) : state = Rx(ReaderSettings.load(storage));
+  ReaderPreferences(this.storage, {assets.ReaderAssets? assetStore, Future<void> Function(Map<Pref<dynamic>, dynamic>)? writePreferences})
+    : assetStore = assetStore ?? assets.defaultReaderAssets,
+      _writePreferences = writePreferences ?? Pref.writeAll,
+      state = Rx(ReaderSettings.load(storage));
 
   final LocalStorageService storage;
+  final assets.ReaderAssets assetStore;
+  final Future<void> Function(Map<Pref<dynamic>, dynamic>) _writePreferences;
+  Future<void> _resourceTail = Future.value();
+  int _fontRevision = 0;
+  bool _closed = false;
   final Rx<ReaderSettings> state;
   final RxBool isFontFileAvailable = false.obs;
   void Function(ReaderSettings previous, ReaderSettings next)? onChanged;
@@ -158,54 +166,112 @@ class ReaderPreferences {
     }
   }
 
-  Future<bool?> pickTextStyleFile() async {
+  // Serialize resource edits so each operation owns the reference it replaces.
+  Future<T> _resourceOperation<T>(Future<T> Function() operation) {
+    final result = _resourceTail.then((_) {
+      if (_closed) throw StateError('Reader preferences are closed');
+      return operation();
+    });
+    _resourceTail = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
+  }
+
+  void close() {
+    _closed = true;
+    ++_fontRevision;
+    onChanged = null;
+  }
+
+  Future<void> _commitResources(Map<ReaderField<dynamic>, dynamic> values) async {
+    if (_closed) throw StateError('Reader preferences are closed');
+    await _writePreferences({for (final entry in values.entries) entry.key.pref(storage): entry.value});
+    if (_closed) return;
+    // Publish only after persistence succeeds, merging with any ordinary edits
+    // made while the disk write was pending.
+    final previous = state.value;
+    final next = ReaderSettings._({...previous._values, ...values});
+    state.value = next;
+    for (final field in values.keys) {
+      _selectAppearance(field);
+    }
+    if (!_closed) onChanged?.call(previous, next);
+  }
+
+  Future<bool?> pickTextStyleFile() => _resourceOperation(() async {
+    ({String path, String family})? font;
     try {
-      final font = await assets.pickTextStyleFile();
+      font = await assetStore.pickTextStyleFile();
       if (font == null) return null;
-      ReaderFields.textStyleFilePath.setIn(this, font.path);
-      ReaderFields.textFamily.setIn(this, font.family);
+      final oldPath = state.value.textStyleFilePath;
+      await _commitResources({ReaderFields.textStyleFilePath: font.path, ReaderFields.textFamily: font.family});
+      ++_fontRevision;
+      if (!_closed) isFontFileAvailable.value = true;
+      await assetStore.deleteStoredFont(oldPath);
       return true;
     } catch (_) {
-      return false;
-    }
-  }
-
-  //检查字体文件是否存在
-  void checkFontFile(bool showDialog) async {
-    if (state.value.textStyleFilePath != null && state.value.textFamily != null) {
-      if (await assets.fontFileExists(state.value.textStyleFilePath!)) {
-        await assets.loadFont(state.value.textStyleFilePath!);
-        isFontFileAvailable.value = true;
-      } else {
-        await assets.deleteFontDir();
-        ReaderFields.textFamily.setIn(this, null);
-        ReaderFields.textStyleFilePath.setIn(this, null);
-        isFontFileAvailable.value = false;
-        if (showDialog) {
-          showMessageDialog(title: "warning".tr, content: "no_font_file_tip".tr, icon: Icon(Icons.warning_amber_outlined));
-        }
+      if (font != null && storage.readerTextStyleFilePath.value != font.path) {
+        await assetStore.deleteStoredFont(font.path);
       }
-    } else {
-      isFontFileAvailable.value = false;
-    }
-  }
-
-  Future<bool?> pickBgImageFile(bool isDark) async {
-    try {
-      final field = isDark ? ReaderFields.readerNightBgImage : ReaderFields.readerDayBgImage;
-      final path = await assets.pickBgImageFile(isDark);
-      if (path == null) return null;
-      await assets.deleteStoredBgImageFile(field.pref(storage).value);
-      field.setIn(this, path);
-      return true;
-    } catch (_) {
       return false;
     }
+  }).catchError((Object _) => false);
+
+  Future<void> clearTextStyleFile() => _resourceOperation(() async {
+    final oldPath = state.value.textStyleFilePath;
+    await _commitResources({ReaderFields.textStyleFilePath: null, ReaderFields.textFamily: null});
+    ++_fontRevision;
+    if (!_closed) isFontFileAvailable.value = false;
+    await assetStore.deleteStoredFont(oldPath);
+  });
+
+  // Checking an old snapshot never clears settings. A missing/unloadable file
+  // remains recoverable and a late check cannot overwrite a newer import.
+  void checkFontFile(bool showDialog) async {
+    final revision = ++_fontRevision;
+    final snapshot = state.value;
+    final filePath = snapshot.textStyleFilePath;
+    var available = false;
+    try {
+      if (filePath != null && snapshot.textFamily != null && await assetStore.fontFileExists(filePath)) {
+        available = await assetStore.loadStoredFont(filePath) != null;
+      }
+    } catch (_) {
+      available = false;
+    }
+    if (_closed || revision != _fontRevision || state.value.textStyleFilePath != filePath || state.value.textFamily != snapshot.textFamily) return;
+    isFontFileAvailable.value = available;
+    if (!available && filePath != null && showDialog) {
+      showMessageDialog(title: "warning".tr, content: "no_font_file_tip".tr, icon: const Icon(Icons.warning_amber_outlined));
+    }
   }
 
-  Future<void> clearReaderBgImage(bool isDark) async {
+  Future<bool?> pickBgImageFile(bool isDark) => _resourceOperation(() async {
     final field = isDark ? ReaderFields.readerNightBgImage : ReaderFields.readerDayBgImage;
-    await assets.deleteStoredBgImageFile(field.pref(storage).value);
-    field.setIn(this, null);
+    String? newPath;
+    try {
+      newPath = await assetStore.pickBgImageFile(isDark);
+      if (newPath == null) return null;
+      final oldPath = state.value.get(field);
+      await _commitResources({field: newPath});
+      await _deleteSupersededBackground(oldPath);
+      return true;
+    } catch (_) {
+      if (newPath != null && field.pref(storage).value != newPath) {
+        await assetStore.deleteStoredBackground(newPath);
+      }
+      return false;
+    }
+  }).catchError((Object _) => false);
+
+  Future<void> _deleteSupersededBackground(String? filePath) async {
+    if (filePath == storage.readerDayBgImage.value || filePath == storage.readerNightBgImage.value) return;
+    await assetStore.deleteStoredBackground(filePath);
   }
+
+  Future<void> clearReaderBgImage(bool isDark) => _resourceOperation(() async {
+    final field = isDark ? ReaderFields.readerNightBgImage : ReaderFields.readerDayBgImage;
+    final oldPath = state.value.get(field);
+    await _commitResources({field: null});
+    await _deleteSupersededBackground(oldPath);
+  });
 }

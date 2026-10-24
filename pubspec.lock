@@ -73,14 +73,6 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "2.0.1"
-  blur:
-    dependency: "direct main"
-    description:
-      name: blur
-      sha256: "1318cf79c735784eda8dffc77b1085b757373d233c1c8d94dc0cfd81530a3574"
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "4.0.2"
   boolean_selector:
     dependency: transitive
     description:
@@ -185,14 +177,6 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "1.4.0"
-  charset_converter:
-    dependency: "direct main"
-    description:
-      name: charset_converter
-      sha256: da90e0a5bc3bea06df12615cac23544db4e7f06fb26bec0c7253229fc291e12e
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "2.5.1"
   checked_yaml:
     dependency: transitive
     description:
@@ -290,7 +274,7 @@ packages:
     source: hosted
     version: "0.7.15"
   device_info_plus:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: device_info_plus
       sha256: "0891702f96b2e465fe567b7ec448380e6b1c14f60af552a8536d9f583b6b8442"
@@ -672,14 +656,6 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "2.20.0"
-  hive_ce_flutter:
-    dependency: "direct main"
-    description:
-      name: hive_ce_flutter
-      sha256: "2677e95a333ff15af43ccd06af7eb7abbf1a4f154ea071997f3de4346cae913a"
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "2.3.4"
   hive_ce_generator:
     dependency: "direct dev"
     description:

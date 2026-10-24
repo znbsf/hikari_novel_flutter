@@ -23,9 +23,6 @@ dependencies:
   # 浏览器
   flutter_inappwebview: ^6.2.0-beta.3
 
-  # 设备信息
-  device_info_plus: ^13.2.0
-
   # 动态取色
   dynamic_color: ^1.7.0
 
@@ -33,7 +30,6 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.5
   hive_ce: ^2.11.1
-  hive_ce_flutter: ^2.3.0
   drift: ^2.26.1
   drift_flutter: ^0.2.4
 
@@ -46,9 +42,6 @@ dependencies:
   # 异常捕捉
   catcher_2: ^2.1.2
   logger: ^2.5.0
-
-  # 编码转换
-  charset_converter: ^2.3.0
 
   # url编码
   enough_convert: ^1.6.0
@@ -73,9 +66,6 @@ dependencies:
 
   # 包信息获取
   package_info_plus: ^10.2.1
-
-  # 模糊
-  blur: ^4.0.0
 
   # 屏幕常亮
   wakelock_plus: ^1.8.0

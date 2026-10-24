@@ -1,4 +1,5 @@
-import 'package:blur/blur.dart';
+import 'dart:ui';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:expandable_text/expandable_text.dart';
 import 'package:flutter/material.dart';
@@ -218,16 +219,27 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
         Positioned.fill(
           child: Padding(
             padding: const EdgeInsets.only(bottom: 1),
-            child: Blur(
-              blur: 3,
-              blurColor: Theme.of(context).colorScheme.surface,
-              child: CachedNetworkImage(
-                width: double.infinity,
-                imageUrl: detail.imgUrl,
-                httpHeaders: kUserAgent,
-                fit: BoxFit.fitWidth,
-                progressIndicatorBuilder: (context, url, downloadProgress) => Center(child: CircularProgressIndicator(value: downloadProgress.progress)),
-                errorWidget: (context, url, error) => Column(children: [const Icon(Icons.error_outline), Text(error.toString())]),
+            child: ClipRRect(
+              child: Stack(
+                children: [
+                  CachedNetworkImage(
+                    width: double.infinity,
+                    imageUrl: detail.imgUrl,
+                    httpHeaders: kUserAgent,
+                    fit: BoxFit.fitWidth,
+                    progressIndicatorBuilder: (context, url, downloadProgress) => Center(child: CircularProgressIndicator(value: downloadProgress.progress)),
+                    errorWidget: (context, url, error) => Column(children: [const Icon(Icons.error_outline), Text(error.toString())]),
+                  ),
+                  Positioned.fill(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+                      child: Container(
+                        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5)),
+                        alignment: Alignment.center,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

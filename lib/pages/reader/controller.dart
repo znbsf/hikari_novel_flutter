@@ -1,26 +1,16 @@
-import 'dart:async';
-import 'dart:io';
-
-import 'package:battery_plus/battery_plus.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:get/get.dart';
+import 'package:get/get.dart'
+    show Get, GetNavigation, GetxController, Rx, RxBool, RxInt, RxString, RxList, BoolExtension, IntExtension, StringExtension, debounce, Trans;
 import 'package:hikari_novel_flutter/common/app_paths.dart';
 import 'package:hikari_novel_flutter/common/constants.dart';
 import 'package:hikari_novel_flutter/common/extension.dart';
-import 'package:hikari_novel_flutter/common/system_ui.dart';
 import 'package:hikari_novel_flutter/models/dual_page_mode.dart';
 import 'package:hikari_novel_flutter/models/reader_direction.dart';
 import 'package:hikari_novel_flutter/models/resource.dart';
-import 'package:hikari_novel_flutter/pages/novel_detail/controller.dart';
 import 'package:hikari_novel_flutter/parser/parser.dart';
 import 'package:hikari_novel_flutter/service/tts_service.dart';
 import 'package:hikari_novel_flutter/widgets/dialogs.dart';
-import 'package:path/path.dart' as path;
-import 'package:ttf_metadata/ttf_metadata.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../common/database/database.dart';
 import '../../common/log.dart';
@@ -28,14 +18,31 @@ import '../../models/cat_volume.dart';
 import '../../models/page_state.dart';
 import '../../service/api_service.dart';
 import '../../service/local_storage_service.dart';
+import 'reader_platform.dart';
+import 'reader_settings.dart';
+import 'widgets/catalogue_sheet.dart' show findIndexPositionInCatalogue;
 import 'widgets/paper_curl_pager.dart';
 
-class ReaderController extends GetxController {
-  static const MethodChannel _volumeKeyChannel = MethodChannel('hikari/reader_volume_keys');
-  final _novelDetailController = Get.find<NovelDetailController>();
+export 'widgets/catalogue_sheet.dart' show findIndexPositionInCatalogue;
 
-  late List<CatVolume> catalogue;
-  late String aid;
+class ReaderArgs {
+  const ReaderArgs(this.aid, this.catalogue, this.cid, this.location);
+
+  final String aid;
+  final List<CatVolume> catalogue;
+  final String cid;
+  final int location;
+}
+
+class ReaderController extends GetxController {
+  ReaderController(this.args);
+
+  final ReaderArgs args;
+  List<CatVolume> get catalogue => args.catalogue;
+  String get aid => args.aid;
+  final preferences = ReaderPreferences(LocalStorageService.instance);
+  late final platform = ReaderPlatform(settings: () => preferences.state.value, prevPage: prevPage, nextPage: nextPage);
+
   late int currentVolumeIndex;
   late int currentChapterIndex;
 
@@ -48,20 +55,12 @@ class ReaderController extends GetxController {
   final pageController = PageController();
   final paperCurlController = PaperCurlPagerController();
 
-  final _battery = Battery();
-  StreamSubscription<BatteryState>? _batterySubscription;
-  Timer? _clockTimer;
-  RxInt batteryLevel = 0.obs;
-  Rx<DateTime> currentTime = DateTime.now().obs;
-
   Rx<PageState> pageState = Rx(PageState.loading);
-
-  Rx<ReaderSettingsState> readerSettingsState = Rx(ReaderSettingsState.init());
 
   ///阅读界面显示操作栏
   RxBool showBar = false.obs;
 
-  bool get isDualPage => switch (readerSettingsState.value.dualPageMode) {
+  bool get isDualPage => switch (preferences.state.value.dualPageMode) {
     DualPageMode.auto => Get.context!.shouldAutoUseDualPage(),
     DualPageMode.enabled => true,
     DualPageMode.disabled => false,
@@ -92,36 +91,12 @@ class ReaderController extends GetxController {
 
   String errorMsg = "";
 
-  RxBool isFontFileAvailable = false.obs;
-
-  Rxn<Color> currentTextColor = Rxn();
-
-  Rxn<Color> currentBgColor = Rxn();
-
-  String? textFamilyName;
-
-  Rxn<String> currentBgImagePath = Rxn();
-
   @override
-  void onInit() async {
+  void onInit() {
     super.onInit();
-
-    aid = _novelDetailController.aid;
-    catalogue = _novelDetailController.novelDetail.value!.catalogue;
-
-    _battery.batteryLevel.then((l) => batteryLevel.value = l);
-    _batterySubscription = _battery.onBatteryStateChanged.listen((_) async {
-      batteryLevel.value = await _battery.batteryLevel;
-    });
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      currentTime.value = DateTime.now();
-    });
-
-    getTextColor();
-    getBgColor();
-    getBgImage();
-
-    checkFontFile(true);
+    preferences.onChanged = platform.settingsChanged;
+    platform.onInit();
+    preferences.initialize(Theme.of(Get.context!).brightness);
 
     getInitLocation(); //事先赋值一下对应的变量，防止在build过程中修改obx变量
 
@@ -135,8 +110,7 @@ class ReaderController extends GetxController {
   @override
   void onReady() async {
     super.onReady();
-    if (readerSettingsState.value.wakeLock) WakelockPlus.toggle(enable: true);
-    _applyReaderSystemUi(readerSettingsState.value.immersionMode);
+    platform.onReady();
 
     /*
      1) 至于这里的cid为什么不直接使用上面的<get cid>，是因为上面的<get cid>依赖currentVolumeIndex和currentChapterIndex。
@@ -144,8 +118,8 @@ class ReaderController extends GetxController {
      2) 因为getContent()函数依赖cid，所以我把初始化cid的过程放到了onReady而不是onInit中。
      */
     final listOnlyWithCid = catalogue.map((cat) => cat.chapters.map((chap) => chap.cid).toList()).toList(); //仅提取含有cid的list
-    final targetCid = Get.parameters["cid"]!;
-    final indexPosition = (await compute(findIndexPositionInCatalogue, {'catalogue': listOnlyWithCid, 'cid': targetCid}))!;
+    final targetCid = args.cid;
+    final indexPosition = findIndexPositionInCatalogue({'catalogue': listOnlyWithCid, 'cid': targetCid})!;
 
     currentVolumeIndex = indexPosition[0];
     currentChapterIndex = indexPosition[1];
@@ -157,43 +131,34 @@ class ReaderController extends GetxController {
 
   @override
   void onClose() {
-    _batterySubscription?.cancel();
-    _clockTimer?.cancel();
     TtsService.instance.stop();
-    if (readerSettingsState.value.wakeLock) WakelockPlus.toggle(enable: false);
-    _applyReaderSystemUi(false);
-    _setVolumeKeyHandlingEnabled(false);
+    platform.onClose();
     super.onClose();
   }
 
   //获取初始页面位置
   int getInitLocation() {
-    if (readerSettingsState.value.direction == ReaderDirection.upToDown) {
-      try {
-        int value = int.parse(Get.parameters["location"]!);
-        currentLocation.value = value;
-        initialVerticalOffset = value;
-        return value;
-      } catch (_) {
-        initialVerticalOffset = 0;
-        return 0;
-      }
+    final value = args.location;
+    if (preferences.state.value.direction == ReaderDirection.upToDown) {
+      currentLocation.value = value;
+      initialVerticalOffset = value;
     } else {
-      try {
-        int value = int.parse(Get.parameters["location"]!);
-        currentIndex.value = value;
-        initialHorizontalIndex = value;
-        return value;
-      } catch (_) {
-        initialHorizontalIndex = 0;
-        return 0;
-      }
+      currentIndex.value = value;
+      initialHorizontalIndex = value;
     }
+    return value;
   }
 
   void clearInitLocation() {
     initialHorizontalIndex = 0;
     initialVerticalOffset = 0;
+  }
+
+  void selectChapter(int volumeIndex, int chapterIndex) {
+    currentVolumeIndex = volumeIndex;
+    currentChapterIndex = chapterIndex;
+    clearInitLocation();
+    getContent();
   }
 
   Future<void> getContent() async {
@@ -261,11 +226,11 @@ class ReaderController extends GetxController {
 
   /// 跳转页数
   void jumpToPage(int page) {
-    if (readerSettingsState.value.direction != ReaderDirection.upToDown && readerSettingsState.value.pageTurningAnimation) {
+    if (preferences.state.value.direction != ReaderDirection.upToDown && preferences.state.value.pageTurningAnimation) {
       paperCurlController.jumpToPage(page);
       return;
     }
-    readerSettingsState.value.pageTurningAnimation
+    preferences.state.value.pageTurningAnimation
         ? pageController.animateToPage(page, duration: const Duration(milliseconds: 200), curve: Curves.linear)
         : pageController.jumpToPage(page);
   }
@@ -308,492 +273,14 @@ class ReaderController extends GetxController {
       ReadHistoryEntityData(
         cid: cid,
         aid: aid,
-        readerMode: readerSettingsState.value.direction == ReaderDirection.upToDown ? kScrollReadMode : kPageReadMode,
+        readerMode: preferences.state.value.direction == ReaderDirection.upToDown ? kScrollReadMode : kPageReadMode,
         // 1为滚动模式，2为翻页模式，翻页模式的左右方向不影响阅读记录的使用
         isDualPage: isDualPage,
-        location: readerSettingsState.value.direction == ReaderDirection.upToDown ? currentLocation.value : currentIndex.value,
-        progress: readerSettingsState.value.direction == ReaderDirection.upToDown ? verticalProgress.value : horizontalProgress.value,
+        location: preferences.state.value.direction == ReaderDirection.upToDown ? currentLocation.value : currentIndex.value,
+        progress: preferences.state.value.direction == ReaderDirection.upToDown ? verticalProgress.value : horizontalProgress.value,
         isLatest: true,
       ),
     );
   }
 
-  void changeFontSize(double value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(fontSize: value);
-    LocalStorageService.instance.readerFontSize.value = value;
-  }
-
-  void changeLineSpacing(double value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(lineSpacing: value);
-    LocalStorageService.instance.readerLineSpacing.value = value;
-  }
-
-  void changeReaderDirection(ReaderDirection d) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(direction: d);
-    LocalStorageService.instance.readerDirection.value = d;
-    _setVolumeKeyHandlingEnabled(_volumeKeyPageTurningEnabled);
-  }
-
-  void changeReaderPageTurningAnimation(bool enabled) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(pageTurningAnimation: enabled);
-    LocalStorageService.instance.readerPageTurningAnimation.value = enabled;
-  }
-
-  void changeReaderVolumeKeyPageTurning(bool enabled) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(volumeKeyPageTurning: enabled);
-    LocalStorageService.instance.readerVolumeKeyPageTurning.value = enabled;
-    _setVolumeKeyHandlingEnabled(_volumeKeyPageTurningEnabled);
-  }
-
-  bool get _volumeKeyPageTurningEnabled => readerSettingsState.value.volumeKeyPageTurning && readerSettingsState.value.direction != ReaderDirection.upToDown;
-
-  Future<void> _setVolumeKeyHandlingEnabled(bool enabled) async {
-    if (!Platform.isAndroid) return;
-    try {
-      await _volumeKeyChannel.invokeMethod('setEnabled', {'enabled': enabled});
-    } on PlatformException {
-      // Native volume-key support is optional on non-Android targets.
-    }
-  }
-
-  void changeReaderWakeLock(bool enabled) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(wakeLock: enabled);
-    WakelockPlus.toggle(enable: enabled);
-    LocalStorageService.instance.readerWakeLock.value = enabled;
-  }
-
-  void changeLeftMargin(double value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(leftMargin: value);
-    LocalStorageService.instance.readerLeftMargin.value = value;
-  }
-
-  void changeTopMargin(double value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(topMargin: value);
-    LocalStorageService.instance.readerTopMargin.value = value;
-  }
-
-  void changeRightMargin(double value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(rightMargin: value);
-    LocalStorageService.instance.readerRightMargin.value = value;
-  }
-
-  void changeBottomMargin(double value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(bottomMargin: value);
-    LocalStorageService.instance.readerBottomMargin.value = value;
-  }
-
-  void changeDualPageMode(DualPageMode mode) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(dualPageMode: mode);
-    LocalStorageService.instance.readerDualPageMode.value = mode;
-  }
-
-  void changeDualPageSpacing(double value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(dualPageSpacing: value);
-    LocalStorageService.instance.readerDualPageSpacing.value = value;
-  }
-
-  void changeImmersionMode(bool enabled) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(immersionMode: enabled);
-    _applyReaderSystemUi(enabled);
-    LocalStorageService.instance.readerImmersionMode.value = enabled;
-  }
-
-  void _applyReaderSystemUi(bool immersive) {
-    if (!(Platform.isAndroid || Platform.isIOS)) return;
-
-    if (immersive) {
-      SystemUi.immersive();
-      return;
-    }
-
-    SystemUi.edgeToEdge();
-  }
-
-  void changeShowStatusBar(bool enabled) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(showStatusBar: enabled);
-    LocalStorageService.instance.readerStatusBar.value = enabled;
-  }
-
-  void changeReaderTextStyleFilePath(String? path) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(textStyleFilePath: path);
-    LocalStorageService.instance.readerTextStyleFilePath.value = path;
-  }
-
-  void changeReaderTextFamily(String? family) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(textFamily: family);
-    LocalStorageService.instance.readerTextFamily.value = family;
-  }
-
-  void changeReaderDayTextColor(Color? color) {
-    currentTextColor.value = color;
-    LocalStorageService.instance.readerDayTextColor.value = color;
-  }
-
-  void changeReaderNightTextColor(Color? color) {
-    currentTextColor.value = color;
-    LocalStorageService.instance.readerNightTextColor.value = color;
-  }
-
-  void changeReaderDayBgColor(Color? color) {
-    currentBgColor.value = color;
-    LocalStorageService.instance.readerDayBgColor.value = color;
-  }
-
-  void changeReaderNightBgColor(Color? color) {
-    currentBgColor.value = color;
-    LocalStorageService.instance.readerNightBgColor.value = color;
-  }
-
-  void changeReaderDayBgImage(String? path) {
-    currentBgImagePath.value = path;
-    LocalStorageService.instance.readerDayBgImage.value = path;
-  }
-
-  void changeReaderNightBgImage(String? path) {
-    currentBgImagePath.value = path;
-    LocalStorageService.instance.readerNightBgImage.value = path;
-  }
-
-  void changeReaderParaIndent(int value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(readerParaIndent: value);
-    LocalStorageService.instance.readerParaIndent.value = value;
-  }
-
-  void changeReaderParaSpacing(int value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(readerParaSpacing: value);
-    LocalStorageService.instance.readerParaSpacing.value = value;
-  }
-
-  void changeReaderBottomStatusBarHorizontalSpacing(int value) {
-    readerSettingsState.value = readerSettingsState.value.copyWith(readerBottomStatusBarHorizontalSpacing: value);
-    LocalStorageService.instance.readerBottomStatusBarHorizontalSpacing.value = value;
-  }
-
-  void getTextColor() {
-    if (Get.context!.isDarkMode) {
-      currentTextColor.value = LocalStorageService.instance.readerNightTextColor.value;
-    } else {
-      currentTextColor.value = LocalStorageService.instance.readerDayTextColor.value;
-    }
-  }
-
-  void getBgColor() {
-    if (Get.context!.isDarkMode) {
-      currentBgColor.value = LocalStorageService.instance.readerNightBgColor.value;
-    } else {
-      currentBgColor.value = LocalStorageService.instance.readerDayBgColor.value;
-    }
-  }
-
-  Future<bool?> pickTextStyleFile() async {
-    try {
-      final file = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: ['ttf', 'otf']);
-      if (file == null) return null; // 用户取消
-
-      final tempPath = file.path!;
-
-      await deleteFontDir();
-
-      final srcFile = File(tempPath);
-      final ext = path.extension(tempPath);
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final fileName = "font_$timestamp$ext";
-      final destDir = AppPaths.fontDir;
-      await destDir.create(recursive: true);
-      final destPath = '${destDir.path}/$fileName';
-      final destFile = await srcFile.copy(destPath);
-
-      final bytes = await File(tempPath).readAsBytes();
-      textFamilyName = TtfMetadata(TtfDataSource(byteData: bytes)).fontName;
-
-      await _loadFont(destFile);
-
-      changeReaderTextStyleFilePath(destPath);
-      changeReaderTextFamily(textFamilyName!);
-
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  Future<void> _loadFont(File file) async {
-    final bytes = await file.readAsBytes();
-    textFamilyName = TtfMetadata(TtfDataSource(byteData: bytes)).fontName;
-    final loader = FontLoader(textFamilyName!)..addFont(Future.value(ByteData.view(bytes.buffer)));
-    await loader.load();
-  }
-
-  Future<void> deleteFontDir() async {
-    final fontsDir = AppPaths.fontDir;
-
-    if (await fontsDir.exists()) {
-      await fontsDir.delete(recursive: true);
-    }
-  }
-
-  //检查字体文件是否存在
-  void checkFontFile(bool showDialog) async {
-    if (readerSettingsState.value.textStyleFilePath != null && readerSettingsState.value.textFamily != null) {
-      final result = await File(readerSettingsState.value.textStyleFilePath!).exists();
-      if (result) {
-        await _loadFont(File(readerSettingsState.value.textStyleFilePath!));
-        isFontFileAvailable.value = true;
-      } else {
-        await deleteFontDir();
-        changeReaderTextFamily(null);
-        changeReaderTextStyleFilePath(null);
-        isFontFileAvailable.value = false;
-
-        if (showDialog) {
-          showMessageDialog(title: "warning".tr, content: "no_font_file_tip".tr, icon: Icon(Icons.warning_amber_outlined));
-        }
-      }
-    } else {
-      isFontFileAvailable.value = false;
-    }
-  }
-
-  void getBgImage() {
-    if (Get.context!.isDarkMode) {
-      currentBgImagePath.value = LocalStorageService.instance.readerNightBgImage.value;
-    } else {
-      currentBgImagePath.value = LocalStorageService.instance.readerDayBgImage.value;
-    }
-  }
-
-  Future<bool?> pickBgImageFile(bool isDark) async {
-    try {
-      final file = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: ['jpg', 'png', 'jpeg']);
-      if (file == null) return null; // 用户取消
-
-      final tempPath = file.path!;
-
-      final srcFile = File(tempPath);
-      final ext = path.extension(tempPath);
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final fileName = isDark ? "night_$timestamp$ext" : "day_$timestamp$ext";
-      final destDir = AppPaths.bgImageDir;
-      if (!await destDir.exists()) {
-        await destDir.create(recursive: true);
-      }
-      final destPath = '${destDir.path}/$fileName';
-      await srcFile.copy(destPath);
-      final oldPath = isDark ? LocalStorageService.instance.readerNightBgImage.value : LocalStorageService.instance.readerDayBgImage.value;
-      await _deleteStoredBgImageFile(oldPath);
-
-      if (isDark) {
-        changeReaderNightBgImage(destPath);
-      } else {
-        changeReaderDayBgImage(destPath);
-      }
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  Future<void> clearReaderBgImage(bool isDark) async {
-    final oldPath = isDark ? LocalStorageService.instance.readerNightBgImage.value : LocalStorageService.instance.readerDayBgImage.value;
-    await _deleteStoredBgImageFile(oldPath);
-
-    if (isDark) {
-      changeReaderNightBgImage(null);
-    } else {
-      changeReaderDayBgImage(null);
-    }
-  }
-
-  Future<void> _deleteStoredBgImageFile(String? filePath) async {
-    if (filePath == null || filePath.isEmpty) return;
-
-    final bgDirPath = path.normalize(AppPaths.bgImageDir.path);
-    final targetPath = path.normalize(filePath);
-    if (!path.isWithin(bgDirPath, targetPath)) return;
-
-    final file = File(targetPath);
-    if (await file.exists()) {
-      await file.delete();
-    }
-  }
-
-  Future<void> deleteBgImageDir() async {
-    final fontsDir = AppPaths.bgImageDir;
-
-    if (await fontsDir.exists()) {
-      await fontsDir.delete(recursive: true);
-    }
-  }
-}
-
-///查找目标字符串在二维列表中出现的位置
-///返回格式：[外层索引, 内层索引]，未找到则返回 null
-List<int>? findIndexPositionInCatalogue(Map<String, dynamic> args) {
-  final catalogue = args['catalogue'] as List<List<String>>;
-  final targetCid = args['cid'] as String;
-
-  // 遍历外层列表，同时获取索引和子列表
-  for (int outerIndex = 0; outerIndex < catalogue.length; outerIndex++) {
-    List<String> innerList = catalogue[outerIndex];
-    // 查找目标字符串在当前子列表中的索引
-    int innerIndex = innerList.indexOf(targetCid);
-    // 如果找到（索引不为 -1），返回位置
-    if (innerIndex != -1) {
-      return [outerIndex, innerIndex];
-      // return IndexPosition(volumeIndex: outerIndex, chapterIndex: innerIndex);
-    }
-  }
-  return null;
-}
-
-class ReaderSettingsState {
-  final ReaderDirection direction;
-  final bool pageTurningAnimation;
-  final bool volumeKeyPageTurning;
-  final bool wakeLock;
-  final DualPageMode dualPageMode;
-  final double dualPageSpacing;
-  final bool immersionMode;
-  final bool showStatusBar;
-  final double fontSize;
-  final double lineSpacing;
-  final double leftMargin;
-  final double topMargin;
-  final double rightMargin;
-  final double bottomMargin;
-  final Color? textColor;
-  final Color? bgColor;
-  final String? textStyleFilePath;
-  final String? textFamily;
-  final String? bgImagePath;
-  final String? readerDayBgImage;
-  final String? readerNightBgImage;
-  final Color? readerDayTextColor;
-  final Color? readerNightTextColor;
-  final Color? readerDayBgColor;
-  final Color? readerNightBgColor;
-  final int readerParaIndent;
-  final int readerParaSpacing;
-  final int readerBottomStatusBarHorizontalSpacing;
-
-  ReaderSettingsState({
-    required this.direction,
-    required this.pageTurningAnimation,
-    required this.volumeKeyPageTurning,
-    required this.wakeLock,
-    required this.dualPageMode,
-    required this.dualPageSpacing,
-    required this.immersionMode,
-    required this.showStatusBar,
-    required this.fontSize,
-    required this.lineSpacing,
-    required this.leftMargin,
-    required this.topMargin,
-    required this.rightMargin,
-    required this.bottomMargin,
-    required this.textColor,
-    required this.bgColor,
-    required this.textStyleFilePath,
-    required this.textFamily,
-    required this.bgImagePath,
-    required this.readerDayBgImage,
-    required this.readerNightBgImage,
-    required this.readerDayTextColor,
-    required this.readerNightTextColor,
-    required this.readerDayBgColor,
-    required this.readerNightBgColor,
-    required this.readerParaIndent,
-    required this.readerParaSpacing,
-    required this.readerBottomStatusBarHorizontalSpacing,
-  });
-
-  ReaderSettingsState copyWith({
-    ReaderDirection? direction,
-    bool? pageTurningAnimation,
-    bool? volumeKeyPageTurning,
-    bool? wakeLock,
-    DualPageMode? dualPageMode,
-    double? dualPageSpacing,
-    bool? immersionMode,
-    bool? showStatusBar,
-    double? fontSize,
-    double? lineSpacing,
-    double? leftMargin,
-    double? topMargin,
-    double? rightMargin,
-    double? bottomMargin,
-    Color? textColor,
-    Color? bgColor,
-    String? textStyleFilePath,
-    String? textFamily,
-    String? bgImagePath,
-    String? readerDayBgImage,
-    String? readerNightBgImage,
-    Color? readerDayTextColor,
-    Color? readerNightTextColor,
-    Color? readerDayBgColor,
-    Color? readerNightBgColor,
-    int? readerParaIndent,
-    int? readerParaSpacing,
-    int? readerBottomStatusBarHorizontalSpacing,
-  }) => ReaderSettingsState(
-    direction: direction ?? this.direction,
-    pageTurningAnimation: pageTurningAnimation ?? this.pageTurningAnimation,
-    volumeKeyPageTurning: volumeKeyPageTurning ?? this.volumeKeyPageTurning,
-    wakeLock: wakeLock ?? this.wakeLock,
-    dualPageMode: dualPageMode ?? this.dualPageMode,
-    dualPageSpacing: dualPageSpacing ?? this.dualPageSpacing,
-    immersionMode: immersionMode ?? this.immersionMode,
-    showStatusBar: showStatusBar ?? this.showStatusBar,
-    fontSize: fontSize ?? this.fontSize,
-    lineSpacing: lineSpacing ?? this.lineSpacing,
-    leftMargin: leftMargin ?? this.leftMargin,
-    topMargin: topMargin ?? this.topMargin,
-    rightMargin: rightMargin ?? this.rightMargin,
-    bottomMargin: bottomMargin ?? this.bottomMargin,
-    textColor: textColor ?? this.textColor,
-    bgColor: bgColor ?? this.bgColor,
-    textStyleFilePath: textStyleFilePath ?? this.textStyleFilePath,
-    textFamily: textFamily ?? this.textFamily,
-    bgImagePath: bgImagePath ?? this.bgImagePath,
-    readerDayBgImage: readerDayBgImage ?? this.readerDayBgImage,
-    readerNightBgImage: readerNightBgImage ?? this.readerNightBgImage,
-    readerDayTextColor: readerDayTextColor ?? this.readerDayTextColor,
-    readerNightTextColor: readerNightTextColor ?? this.readerNightTextColor,
-    readerDayBgColor: readerDayBgColor ?? this.readerDayBgColor,
-    readerNightBgColor: readerNightBgColor ?? this.readerNightBgColor,
-    readerParaIndent: readerParaIndent ?? this.readerParaIndent,
-    readerParaSpacing: readerParaSpacing ?? this.readerParaSpacing,
-    readerBottomStatusBarHorizontalSpacing: readerBottomStatusBarHorizontalSpacing ?? this.readerBottomStatusBarHorizontalSpacing,
-  );
-
-  ReaderSettingsState.init()
-    : direction = LocalStorageService.instance.readerDirection.value,
-      pageTurningAnimation = LocalStorageService.instance.readerPageTurningAnimation.value,
-      volumeKeyPageTurning = LocalStorageService.instance.readerVolumeKeyPageTurning.value,
-      wakeLock = LocalStorageService.instance.readerWakeLock.value,
-      dualPageMode = LocalStorageService.instance.readerDualPageMode.value,
-      dualPageSpacing = LocalStorageService.instance.readerDualPageSpacing.value,
-      immersionMode = LocalStorageService.instance.readerImmersionMode.value,
-      showStatusBar = LocalStorageService.instance.readerStatusBar.value,
-      fontSize = LocalStorageService.instance.readerFontSize.value,
-      lineSpacing = LocalStorageService.instance.readerLineSpacing.value,
-      leftMargin = LocalStorageService.instance.readerLeftMargin.value,
-      topMargin = LocalStorageService.instance.readerTopMargin.value,
-      rightMargin = LocalStorageService.instance.readerRightMargin.value,
-      bottomMargin = LocalStorageService.instance.readerBottomMargin.value,
-      textColor = LocalStorageService.instance.readerDayTextColor.value,
-      bgColor = LocalStorageService.instance.readerDayBgColor.value,
-      textStyleFilePath = LocalStorageService.instance.readerTextStyleFilePath.value,
-      textFamily = LocalStorageService.instance.readerTextFamily.value,
-      bgImagePath = LocalStorageService.instance.readerDayBgImage.value,
-      readerDayBgImage = LocalStorageService.instance.readerDayBgImage.value,
-      readerNightBgImage = LocalStorageService.instance.readerNightBgImage.value,
-      readerDayTextColor = LocalStorageService.instance.readerDayTextColor.value,
-      readerNightTextColor = LocalStorageService.instance.readerNightTextColor.value,
-      readerDayBgColor = LocalStorageService.instance.readerDayBgColor.value,
-      readerNightBgColor = LocalStorageService.instance.readerNightBgColor.value,
-      readerParaIndent = LocalStorageService.instance.readerParaIndent.value,
-      readerParaSpacing = LocalStorageService.instance.readerParaSpacing.value,
-      readerBottomStatusBarHorizontalSpacing = LocalStorageService.instance.readerBottomStatusBarHorizontalSpacing.value;
 }

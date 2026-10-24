@@ -1,3 +1,10 @@
+import 'package:easy_refresh/easy_refresh.dart';
+import 'package:get/get.dart' show Get, GetNavigation;
+import '../../../models/reader_direction.dart';
+import '../../../router/route_path.dart';
+import '../controller.dart';
+import 'custom_header.dart';
+import 'refresh_indicator_box.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Page;
@@ -565,5 +572,78 @@ class NovelTextPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant NovelTextPainter oldDelegate) {
     return oldDelegate.style != style || oldDelegate.rows != rows || oldDelegate.fontHeight != fontHeight || oldDelegate.paragraphSpacing != paragraphSpacing;
+  }
+}
+
+class HorizontalReader extends StatelessWidget {
+  const HorizontalReader({super.key, required this.controller, required this.padding, required this.style, this.footer});
+
+  final ReaderController controller;
+  final EdgeInsets padding;
+  final TextStyle style;
+  final Widget? footer;
+
+  @override
+  Widget build(BuildContext context) {
+    final usePaperCurl = controller.preferences.state.value.pageTurningAnimation;
+    final horizontalReader = HorizontalReadPage(
+      controller.text.value,
+      controller.images,
+      initIndex: controller.initialHorizontalIndex,
+      padding: padding,
+      style: style,
+      reverse: controller.preferences.state.value.direction == ReaderDirection.rightToLeft,
+      isDualPage: controller.isDualPage,
+      dualPageSpacing: controller.preferences.state.value.dualPageSpacing,
+      controller: controller.pageController,
+      pageTurningAnimation: controller.preferences.state.value.pageTurningAnimation,
+      paraSpacing: controller.preferences.state.value.readerParaSpacing,
+      paraIndent: controller.preferences.state.value.readerParaIndent,
+      paperCurlController: controller.paperCurlController,
+      backgroundColor: controller.preferences.bgColor ?? Theme.of(context).colorScheme.surface,
+      backsideColor: Color.lerp(
+        controller.preferences.bgColor ?? Theme.of(context).colorScheme.surface,
+        Theme.of(context).colorScheme.surfaceTint,
+        Theme.of(context).brightness == Brightness.dark ? 0.18 : 0.10,
+      ),
+      pageFooter: footer,
+      onCenterTap: () => controller.showBar.value = !controller.showBar.value,
+      onLeftTap: controller.prevPage,
+      onRightTap: controller.nextPage,
+      onReachStart: controller.prevChapter,
+      onReachEnd: controller.nextChapter,
+      onPageChanged: (index, max) {
+        controller.currentIndex.value = index;
+        controller.maxPage.value = max;
+        if (max == 1 && index == 0) {
+          //仅一页的情况下
+          controller.horizontalProgress.value = 100;
+          controller.setReadHistory(); //立即更新历史阅读记录
+        } else if (max > 0) {
+          controller.horizontalProgress.value = int.parse(((index + 1) / max * 100.0).toStringAsFixed(0)).clamp(0, 100);
+          //由controller的debounce监听currentIndex变化，判断是否更新历史阅读记录
+        }
+      },
+      onViewImage: (index) => Get.toNamed(RoutePath.photo, arguments: {"gallery_mode": true, "list": controller.images, "index": index}),
+    );
+
+    if (usePaperCurl) {
+      return horizontalReader;
+    }
+
+    return EasyRefresh(
+      header: MaterialHeader2(
+        triggerOffset: 80,
+        child: RefreshIndicatorBox(icon: Icons.arrow_circle_left_outlined),
+      ),
+      footer: MaterialFooter2(
+        triggerOffset: 80,
+        child: RefreshIndicatorBox(icon: Icons.arrow_circle_right_outlined),
+      ),
+      refreshOnStart: false,
+      onRefresh: controller.prevChapter,
+      onLoad: controller.nextChapter,
+      child: horizontalReader,
+    );
   }
 }

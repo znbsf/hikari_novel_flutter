@@ -1,3 +1,7 @@
+import 'package:easy_refresh/easy_refresh.dart';
+import '../controller.dart';
+import 'custom_header.dart';
+import 'refresh_indicator_box.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
@@ -261,4 +265,57 @@ class ReaderItem {
   ReaderItem.text(this.content) : type = ReaderItemType.text;
 
   ReaderItem.image(this.content, this.index) : type = ReaderItemType.image;
+}
+
+class VerticalReader extends StatelessWidget {
+  const VerticalReader({super.key, required this.controller, required this.verticalReadPageKey, required this.padding, required this.style});
+
+  final ReaderController controller;
+  final GlobalKey<VerticalReadPageState> verticalReadPageKey;
+  final EdgeInsets padding;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: () => controller.showBar.value = !controller.showBar.value,
+      child: SizedBox(
+        height: double.infinity,
+        child: EasyRefresh(
+          header: MaterialHeader2(
+            triggerOffset: 80,
+            child: RefreshIndicatorBox(icon: Icons.arrow_circle_up),
+          ),
+          footer: MaterialFooter2(
+            triggerOffset: 80,
+            child: RefreshIndicatorBox(icon: Icons.arrow_circle_down),
+          ),
+          refreshOnStart: false,
+          onRefresh: controller.prevChapter,
+          onLoad: controller.nextChapter,
+          child: VerticalReadPage(
+            key: verticalReadPageKey,
+            controller.text.value,
+            controller.images,
+            initialOffset: controller.initialVerticalOffset,
+            padding: padding,
+            style: style,
+            paraSpacing: controller.preferences.state.value.readerParaSpacing,
+            paraIndent: controller.preferences.state.value.readerParaIndent,
+            onScroll: (position, max) {
+              if (max == 0 && position == 0) {
+                controller.currentLocation.value = 0;
+                controller.verticalProgress.value = 100;
+                controller.setReadHistory();
+              } else if (max > 0) {
+                controller.currentLocation.value = position.toInt();
+                controller.verticalProgress.value = ((position.toInt() / max.toInt()) * 100).clamp(0, 100).toInt();
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
 }

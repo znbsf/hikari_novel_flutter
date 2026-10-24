@@ -18,6 +18,7 @@ import 'package:hikari_novel_flutter/router/route_path.dart';
 
 import '../../service/local_storage_service.dart';
 import '../../widgets/state_page.dart';
+import '../reader/controller.dart' show ReaderArgs;
 
 class NovelDetailPage extends StatefulWidget {
   final String aid;
@@ -447,7 +448,10 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                                     (currDirection == ReaderDirection.leftToRight || currDirection == ReaderDirection.rightToLeft))) {
                               location = history?.location ?? 0;
                             }
-                            Get.toNamed(RoutePath.reader, parameters: {"cid": chapter.cid, "location": "$location"});
+                            Get.toNamed(
+                              RoutePath.reader,
+                              arguments: ReaderArgs(controller.aid, controller.novelDetail.value!.catalogue, chapter.cid, location),
+                            );
                           },
                           onLongPress: () {
                             if (!controller.isSelectionMode.value) controller.enterSelectionMode();
@@ -484,7 +488,10 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
               child: FloatingActionButton.extended(
                 onPressed: () {
                   if (history == null) return;
-                  Get.toNamed(RoutePath.reader, parameters: {"cid": history.cid, "location": "${history.location}"});
+                  Get.toNamed(
+                    RoutePath.reader,
+                    arguments: ReaderArgs(controller.aid, controller.novelDetail.value!.catalogue, history.cid, history.location),
+                  );
                 },
                 label: Row(children: [const Icon(Icons.play_arrow), const SizedBox(width: 10), Text("continue_reading".tr)]),
               ),

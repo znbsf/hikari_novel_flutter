@@ -11,6 +11,8 @@ import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 import '../../../models/dual_page_mode.dart';
 import '../../../models/reader_direction.dart';
 import '../controller.dart';
+import '../reader_assets.dart' as assets;
+import '../reader_settings.dart';
 
 class ReaderSettingPage extends StatelessWidget {
   ReaderSettingPage({super.key});
@@ -45,8 +47,8 @@ class ReaderSettingPage extends StatelessWidget {
           max: 48,
           divisions: 41,
           decimalPlaces: 0,
-          initValue: controller.readerSettingsState.value.fontSize,
-          onChangeEnd: (value) => controller.changeFontSize(value),
+          initValue: controller.preferences.state.value.fontSize,
+          onChangeEnd: (value) => ReaderFields.fontSize.setIn(controller.preferences, value),
         ),
         SliderTile(
           title: "line_spacing".tr,
@@ -55,8 +57,8 @@ class ReaderSettingPage extends StatelessWidget {
           max: 3,
           divisions: 29,
           decimalPlaces: 1,
-          initValue: controller.readerSettingsState.value.lineSpacing,
-          onChangeEnd: (value) => controller.changeLineSpacing(value),
+          initValue: controller.preferences.state.value.lineSpacing,
+          onChangeEnd: (value) => ReaderFields.lineSpacing.setIn(controller.preferences, value),
         ),
         SliderTile(
           title: "para_indent".tr,
@@ -65,8 +67,8 @@ class ReaderSettingPage extends StatelessWidget {
           max: 10,
           divisions: 10,
           decimalPlaces: 0,
-          initValue: controller.readerSettingsState.value.readerParaIndent,
-          onChangeEnd: (value) => controller.changeReaderParaIndent(value.toInt()),
+          initValue: controller.preferences.state.value.readerParaIndent,
+          onChangeEnd: (value) => ReaderFields.readerParaIndent.setIn(controller.preferences, value.toInt()),
         ),
         SliderTile(
           title: "para_spacing".tr,
@@ -75,11 +77,11 @@ class ReaderSettingPage extends StatelessWidget {
           max: 50,
           divisions: 50,
           decimalPlaces: 0,
-          initValue: controller.readerSettingsState.value.readerParaSpacing,
-          onChangeEnd: (value) => controller.changeReaderParaSpacing(value.toInt()),
+          initValue: controller.preferences.state.value.readerParaSpacing,
+          onChangeEnd: (value) => ReaderFields.readerParaSpacing.setIn(controller.preferences, value.toInt()),
         ),
         Obx(() {
-          final sub = switch (controller.readerSettingsState.value.direction) {
+          final sub = switch (controller.preferences.state.value.direction) {
             ReaderDirection.leftToRight => "left_to_right".tr,
             ReaderDirection.rightToLeft => "right_to_left".tr,
             ReaderDirection.upToDown => "scroll".tr,
@@ -92,7 +94,7 @@ class ReaderSettingPage extends StatelessWidget {
             onTap: () =>
                 showRadioListSheet(
                   context,
-                  value: controller.readerSettingsState.value.direction,
+                  value: controller.preferences.state.value.direction,
                   values: [
                     (ReaderDirection.upToDown, "scroll".tr),
                     (ReaderDirection.leftToRight, "left_to_right".tr),
@@ -100,29 +102,29 @@ class ReaderSettingPage extends StatelessWidget {
                   ],
                   title: "reading_direction".tr,
                 ).then((value) {
-                  if (value != null) controller.changeReaderDirection(value);
+                  if (value != null) ReaderFields.direction.setIn(controller.preferences, value);
                 }),
           );
         }),
         Obx(
           () => Offstage(
-            offstage: controller.readerSettingsState.value.direction == ReaderDirection.upToDown,
+            offstage: controller.preferences.state.value.direction == ReaderDirection.upToDown,
             child: SwitchTile(
               title: "page_turning_animation".tr,
               leading: const Icon(Icons.animation),
-              onChanged: (enabled) => controller.changeReaderPageTurningAnimation(enabled),
-              value: controller.readerSettingsState.value.pageTurningAnimation,
+              onChanged: (enabled) => ReaderFields.pageTurningAnimation.setIn(controller.preferences, enabled),
+              value: controller.preferences.state.value.pageTurningAnimation,
             ),
           ),
         ),
         Obx(
           () => Offstage(
-            offstage: controller.readerSettingsState.value.direction == ReaderDirection.upToDown,
+            offstage: controller.preferences.state.value.direction == ReaderDirection.upToDown,
             child: SwitchTile(
               title: "volume_key_page_turning".tr,
               leading: const Icon(Icons.volume_up_outlined),
               onChanged: _changeVolumeKeyPageTurning,
-              value: controller.readerSettingsState.value.volumeKeyPageTurning,
+              value: controller.preferences.state.value.volumeKeyPageTurning,
             ),
           ),
         ),
@@ -130,8 +132,8 @@ class ReaderSettingPage extends StatelessWidget {
           () => SwitchTile(
             title: "screen_stays_on".tr,
             leading: const Icon(Icons.lightbulb_outlined),
-            onChanged: (enabled) => controller.changeReaderWakeLock(enabled),
-            value: controller.readerSettingsState.value.wakeLock,
+            onChanged: (enabled) => ReaderFields.wakeLock.setIn(controller.preferences, enabled),
+            value: controller.preferences.state.value.wakeLock,
           ),
         ),
         Offstage(
@@ -140,8 +142,8 @@ class ReaderSettingPage extends StatelessWidget {
             () => SwitchTile(
               title: "immersive_mode".tr,
               leading: const Icon(Icons.width_full_outlined),
-              onChanged: (enabled) => controller.changeImmersionMode(enabled),
-              value: controller.readerSettingsState.value.immersionMode,
+              onChanged: (enabled) => ReaderFields.immersionMode.setIn(controller.preferences, enabled),
+              value: controller.preferences.state.value.immersionMode,
             ),
           ),
         ),
@@ -149,38 +151,38 @@ class ReaderSettingPage extends StatelessWidget {
           () => SwitchTile(
             title: "show_status_bar".tr,
             leading: const Icon(Icons.call_to_action_outlined),
-            onChanged: (enabled) => controller.changeShowStatusBar(enabled),
-            value: controller.readerSettingsState.value.showStatusBar,
+            onChanged: (enabled) => ReaderFields.showStatusBar.setIn(controller.preferences, enabled),
+            value: controller.preferences.state.value.showStatusBar,
           ),
         ),
         Obx(
           () => Offstage(
-            offstage: controller.readerSettingsState.value.direction == ReaderDirection.upToDown,
+            offstage: controller.preferences.state.value.direction == ReaderDirection.upToDown,
             child: NormalTile(
               title: "dual_page".tr,
-              subtitle: controller.readerSettingsState.value.dualPageMode.name.tr,
+              subtitle: controller.preferences.state.value.dualPageMode.name.tr,
               leading: const Icon(Icons.looks_two_outlined),
               trailing: const Icon(Icons.keyboard_arrow_down),
               onTap: () =>
                   showRadioListSheet(
                     context,
-                    value: controller.readerSettingsState.value.dualPageMode,
+                    value: controller.preferences.state.value.dualPageMode,
                     values: [(DualPageMode.auto, "auto".tr), (DualPageMode.enabled, "enable".tr), (DualPageMode.disabled, "disable".tr)],
                     title: "dual_page".tr,
                   ).then((value) {
-                    if (value != null) controller.changeDualPageMode(value);
+                    if (value != null) ReaderFields.dualPageMode.setIn(controller.preferences, value);
                   }),
             ),
           ),
         ),
         Obx(() {
-          final dualPageMode = switch (controller.readerSettingsState.value.dualPageMode) {
+          final dualPageMode = switch (controller.preferences.state.value.dualPageMode) {
             DualPageMode.auto => Get.context!.shouldAutoUseDualPage(),
             DualPageMode.enabled => true,
             DualPageMode.disabled => false,
           };
           return Offstage(
-            offstage: !dualPageMode || controller.readerSettingsState.value.direction == ReaderDirection.upToDown,
+            offstage: !dualPageMode || controller.preferences.state.value.direction == ReaderDirection.upToDown,
             child: SliderTile(
               title: "dual_page_spacing".tr,
               leading: const Icon(Icons.space_bar_outlined),
@@ -188,8 +190,8 @@ class ReaderSettingPage extends StatelessWidget {
               max: 60,
               divisions: 120,
               decimalPlaces: 1,
-              initValue: controller.readerSettingsState.value.dualPageSpacing,
-              onChangeEnd: (value) => controller.changeDualPageSpacing(value),
+              initValue: controller.preferences.state.value.dualPageSpacing,
+              onChangeEnd: (value) => ReaderFields.dualPageSpacing.setIn(controller.preferences, value),
             ),
           );
         }),
@@ -203,7 +205,7 @@ class ReaderSettingPage extends StatelessWidget {
       return;
     }
 
-    controller.changeReaderVolumeKeyPageTurning(enabled);
+    ReaderFields.volumeKeyPageTurning.setIn(controller.preferences, enabled);
   }
 
   Widget _buildTheme(BuildContext context) {
@@ -212,25 +214,25 @@ class ReaderSettingPage extends StatelessWidget {
         Obx(
           () => NormalTile(
             title: "font".tr,
-            subtitle: controller.isFontFileAvailable.value ? controller.readerSettingsState.value.textFamily.toString() : "system_font".tr,
+            subtitle: controller.preferences.isFontFileAvailable.value ? controller.preferences.state.value.textFamily.toString() : "system_font".tr,
             leading: const Icon(Icons.format_shapes_outlined),
             trailing: const Icon(Icons.keyboard_arrow_down),
             onTap: () => showNormalListSheet(context, values: [(0, "system_font".tr), (1, "custom_font".tr)], title: "font".tr).then((value) async {
               if (value == 0) {
-                await controller.deleteFontDir();
-                controller.changeReaderTextStyleFilePath(null);
-                controller.changeReaderTextFamily(null);
-                controller.checkFontFile(false);
+                await assets.deleteFontDir();
+                ReaderFields.textStyleFilePath.setIn(controller.preferences, null);
+                ReaderFields.textFamily.setIn(controller.preferences, null);
+                controller.preferences.checkFontFile(false);
                 showSnackBar(message: "set_system_font_successfully".tr, context: Get.context!);
               } else if (value == 1) {
-                final result = await controller.pickTextStyleFile();
+                final result = await controller.preferences.pickTextStyleFile();
                 switch (result) {
                   case null:
                     return;
                   case true:
                     {
                       showSnackBar(message: "set_font_successfully".tr, context: Get.context!);
-                      controller.checkFontFile(false);
+                      controller.preferences.checkFontFile(false);
                     }
                   case false:
                     showSnackBar(message: "set_font_failed".tr, context: Get.context!);
@@ -243,14 +245,14 @@ class ReaderSettingPage extends StatelessWidget {
           () => NormalTile(
             title: "font_color".tr,
             leading: const Icon(Icons.format_color_text_outlined),
-            trailing: controller.currentTextColor.value == null
+            trailing: controller.preferences.textColor == null
                 ? const Icon(Icons.keyboard_arrow_down)
-                : ColorIndicator(width: 20, height: 20, borderRadius: 100, color: controller.currentTextColor.value!),
+                : ColorIndicator(width: 20, height: 20, borderRadius: 100, color: controller.preferences.textColor!),
             onTap: () => showNormalListSheet(context, values: [(0, "change_font_color".tr), (1, "reset_font_color".tr)], title: "font_color".tr).then((value) {
               if (value == 0) {
                 _buildColorPickerDialog(Get.context!, true);
               } else if (value == 1) {
-                Get.context!.isDarkMode ? controller.changeReaderNightTextColor(null) : controller.changeReaderDayTextColor(null);
+                (Get.context!.isDarkMode ? ReaderFields.readerNightTextColor : ReaderFields.readerDayTextColor).setIn(controller.preferences, null);
                 showSnackBar(message: "reset_font_color_successfully".tr, context: Get.context!);
               }
             }),
@@ -260,9 +262,9 @@ class ReaderSettingPage extends StatelessWidget {
           () => NormalTile(
             title: "background_color".tr,
             leading: const Icon(Icons.format_color_fill_rounded),
-            trailing: controller.currentBgColor.value == null
+            trailing: controller.preferences.bgColor == null
                 ? const Icon(Icons.keyboard_arrow_down)
-                : ColorIndicator(width: 20, height: 20, borderRadius: 100, color: controller.currentBgColor.value!),
+                : ColorIndicator(width: 20, height: 20, borderRadius: 100, color: controller.preferences.bgColor!),
             onTap: () =>
                 showNormalListSheet(context, values: [(0, "change_background_color".tr), (1, "reset_background_color".tr)], title: "background_color".tr).then((
                   value,
@@ -270,7 +272,7 @@ class ReaderSettingPage extends StatelessWidget {
                   if (value == 0) {
                     _buildColorPickerDialog(Get.context!, false);
                   } else if (value == 1) {
-                    Get.context!.isDarkMode ? controller.changeReaderNightBgColor(null) : controller.changeReaderDayBgColor(null);
+                    (Get.context!.isDarkMode ? ReaderFields.readerNightBgColor : ReaderFields.readerDayBgColor).setIn(controller.preferences, null);
                     showSnackBar(message: "reset_background_color_successfully".tr, context: Get.context!);
                   }
                 }),
@@ -283,7 +285,7 @@ class ReaderSettingPage extends StatelessWidget {
           onTap: () => showNormalListSheet(context, values: [(0, "change_background_image".tr), (1, "reset_background_image".tr)], title: "background_image".tr)
               .then((value) async {
                 if (value == 0) {
-                  final result = await controller.pickBgImageFile(Get.context!.isDarkMode);
+                  final result = await controller.preferences.pickBgImageFile(Get.context!.isDarkMode);
                   switch (result) {
                     case null:
                       return;
@@ -293,7 +295,7 @@ class ReaderSettingPage extends StatelessWidget {
                       showSnackBar(message: "set_background_failed".tr, context: Get.context!);
                   }
                 } else if (value == 1) {
-                  await controller.clearReaderBgImage(Get.context!.isDarkMode);
+                  await controller.preferences.clearReaderBgImage(Get.context!.isDarkMode);
                   showSnackBar(message: "reset_background_image_successfully".tr, context: Get.context!);
                 }
               }),
@@ -438,8 +440,8 @@ class ReaderSettingPage extends StatelessWidget {
           max: 100,
           divisions: 100,
           decimalPlaces: 0,
-          initValue: controller.readerSettingsState.value.leftMargin,
-          onChangeEnd: (value) => controller.changeLeftMargin(value),
+          initValue: controller.preferences.state.value.leftMargin,
+          onChangeEnd: (value) => ReaderFields.leftMargin.setIn(controller.preferences, value),
         ),
         SliderTile(
           title: "top_margin".tr,
@@ -448,8 +450,8 @@ class ReaderSettingPage extends StatelessWidget {
           max: 100,
           divisions: 100,
           decimalPlaces: 0,
-          initValue: controller.readerSettingsState.value.topMargin,
-          onChangeEnd: (value) => controller.changeTopMargin(value),
+          initValue: controller.preferences.state.value.topMargin,
+          onChangeEnd: (value) => ReaderFields.topMargin.setIn(controller.preferences, value),
         ),
         SliderTile(
           title: "right_margin".tr,
@@ -458,8 +460,8 @@ class ReaderSettingPage extends StatelessWidget {
           max: 100,
           divisions: 100,
           decimalPlaces: 0,
-          initValue: controller.readerSettingsState.value.rightMargin,
-          onChangeEnd: (value) => controller.changeRightMargin(value),
+          initValue: controller.preferences.state.value.rightMargin,
+          onChangeEnd: (value) => ReaderFields.rightMargin.setIn(controller.preferences, value),
         ),
         SliderTile(
           title: "bottom_margin".tr,
@@ -468,8 +470,8 @@ class ReaderSettingPage extends StatelessWidget {
           max: 100,
           divisions: 100,
           decimalPlaces: 0,
-          initValue: controller.readerSettingsState.value.bottomMargin,
-          onChangeEnd: (value) => controller.changeBottomMargin(value),
+          initValue: controller.preferences.state.value.bottomMargin,
+          onChangeEnd: (value) => ReaderFields.bottomMargin.setIn(controller.preferences, value),
         ),
         SliderTile(
           title: "bottomStatusBarHorizontalSpacing".tr,
@@ -478,8 +480,8 @@ class ReaderSettingPage extends StatelessWidget {
           max: 100,
           divisions: 100,
           decimalPlaces: 0,
-          initValue: controller.readerSettingsState.value.readerBottomStatusBarHorizontalSpacing,
-          onChangeEnd: (value) => controller.changeReaderBottomStatusBarHorizontalSpacing(value.toInt()),
+          initValue: controller.preferences.state.value.readerBottomStatusBarHorizontalSpacing,
+          onChangeEnd: (value) => ReaderFields.readerBottomStatusBarHorizontalSpacing.setIn(controller.preferences, value.toInt()),
         ),
       ],
     );
@@ -488,8 +490,8 @@ class ReaderSettingPage extends StatelessWidget {
   /// [isChangeText] `true` 表示修改字体颜色，`false` 表示修改背景颜色`
   void _buildColorPickerDialog(BuildContext context, bool isChangeText) async {
     final initColor = isChangeText
-        ? controller.currentTextColor.value ?? Theme.of(context).colorScheme.onSurface
-        : controller.currentBgColor.value ?? Theme.of(context).colorScheme.surface;
+        ? controller.preferences.textColor ?? Theme.of(context).colorScheme.onSurface
+        : controller.preferences.bgColor ?? Theme.of(context).colorScheme.surface;
     final newColor = await showColorPickerDialog(
       context,
       initColor,
@@ -513,9 +515,9 @@ class ReaderSettingPage extends StatelessWidget {
     );
     if (newColor == initColor) return;
     if (Get.context!.isDarkMode) {
-      isChangeText ? controller.changeReaderNightTextColor(newColor) : controller.changeReaderNightBgColor(newColor);
+      (isChangeText ? ReaderFields.readerNightTextColor : ReaderFields.readerNightBgColor).setIn(controller.preferences, newColor);
     } else {
-      isChangeText ? controller.changeReaderDayTextColor(newColor) : controller.changeReaderDayBgColor(newColor);
+      (isChangeText ? ReaderFields.readerDayTextColor : ReaderFields.readerDayBgColor).setIn(controller.preferences, newColor);
     }
 
     showSnackBar(message: "color_set_successfully".tr, context: Get.context!);

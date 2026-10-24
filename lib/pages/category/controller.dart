@@ -17,17 +17,30 @@ class CategoryController extends PagedListController<NovelCover> {
   RxString sortText = "please_select".tr.obs;
   String sortValue = "";
 
+  Worker? _filterWorker;
+
+  @override
+  void onClose() {
+    _filterWorker?.dispose();
+    easyRefreshController.dispose();
+    super.onClose();
+  }
+
   @override
   void onInit() {
     super.onInit();
 
     //监听参数变化
-    everAll([category, sortText], (_) {
+    _filterWorker = everAll([category, sortText], (_) {
+      invalidateQuery();
       if (category.value != "please_select".tr && sortText.value != "please_select".tr) {
         easyRefreshController.callRefresh(force: true);
       }
     });
   }
+
+  @override
+  Object get queryKey => (category.value, sortText.value, sortValue);
 
   @override
   Future<Resource> getData(int index) => ApiService.instance.getNovelByCategory(category: category.value, sort: sortValue, index: index);

@@ -20,17 +20,7 @@ class AppDatabase extends _$AppDatabase {
   int get schemaVersion => 4; //版本号
 
   @override
-  MigrationStrategy get migration => MigrationStrategy(
-    onUpgrade: (m, from, to) async {
-      if (from == 1 && to == 2) {
-        Migration.fromOneToTwo(this);
-      } else if (from == 2 && to == 3) {
-        Migration.fromTwoToThree();
-      } else if (from == 3 && to == 4) {
-        Migration.fromThreeToFour(this);
-      }
-    },
-  );
+  MigrationStrategy get migration => MigrationStrategy(onUpgrade: (m, from, to) => Migration.upgrade(this, from, to));
 
   Future<void> insertAllBookshelf(Iterable<BookshelfEntityData> data) => batch((b) => b.insertAll(bookshelfEntity, data));
 

@@ -9,7 +9,8 @@ import 'package:html/parser.dart';
 
 import '../common/image_url_helper.dart';
 
-import '../common/log.dart';
+import '../service/site_response.dart';
+import 'parse_exception.dart';
 import '../common/util.dart';
 import '../models/bookshelf.dart';
 import '../models/cat_chapter.dart';
@@ -21,93 +22,113 @@ import '../models/user_info.dart';
 
 ///此部分的代码基本都是沿用之前的逻辑，然后用AI转化了下
 class Parser {
-  static List<NovelCover> parseToList(String htmlContent) {
-    final node = ApiService.instance.wenku8Node.node.replaceAll("https://", "");
+  static bool _emptyNotice(String text) =>
+      RegExp(r'(没有|沒有|暂无|暫無|查无|查無|找不到|未找到)(找到)?(任何)?(相关|相關)?(的)?(小说|小說|书籍|書籍|收藏|搜索结果|搜尋結果|搜索結果|书评|書評|评论|評論)').hasMatch(text.replaceAll(RegExp(r'\s+'), ''));
+
+  static String _bookId(String href) {
+    final uri = Uri.tryParse(href);
+    if (uri == null) return '';
+    return RegExp(r'(?:^|/)book/(\d+)\.htm$').firstMatch(uri.path)?.group(1) ?? uri.queryParameters['aid'] ?? '';
+  }
+
+  static List<NovelCover> parseToList(String htmlContent, {String? node}) => ParseException.guard('list', () => _parseToList(htmlContent, node: node));
+
+  static List<NovelCover> _parseToList(String htmlContent, {String? node}) {
+    SiteResponse.validatePage(htmlContent);
+    if (isError(htmlContent)) throw const ParseException('list', 'site error');
     final List<NovelCover> result = [];
     final Document document = parse(htmlContent);
 
     final Element? contentElement = document.getElementById("content");
     if (contentElement == null) {
-      return result;
+      throw const ParseException('list', 'content missing');
     }
     const String targetStyle = "width:373px;height:136px;float:left;margin:5px 0px 5px 5px;";
     final List<Element> bookItems = contentElement.querySelectorAll('[style="$targetStyle"]');
 
+    if (bookItems.isEmpty && !_emptyNotice(contentElement.text)) {
+      throw const ParseException('list', 'unrecognized empty list');
+    }
+    if (bookItems.isEmpty) return result;
+    final origin = node ?? ApiService.instance.wenku8Node.node;
+    final base = Uri.parse(origin.contains('://') ? origin : 'https://$origin');
     for (final Element novelItem in bookItems) {
-      try {
-        final Element? imgElement = novelItem.querySelector("img");
-        final String rawImg = imgElement?.attributes['src'] ?? '';
-        String img = rawImg;
+      final Element? imgElement = novelItem.querySelector("img");
+      final String rawImg = imgElement?.attributes['src'] ?? '';
+      String img = rawImg;
 
-        final Element? titleLinkElement = novelItem.querySelector("a");
-        final String title = titleLinkElement?.attributes['title'] ?? "";
+      final Element? titleLinkElement = novelItem.querySelector("a");
+      final String title = titleLinkElement?.attributes['title'] ?? "";
 
-        final Element? divElement = novelItem.querySelector("div");
-        final Element? detailLinkElement = divElement?.querySelector("a");
-        final String href = detailLinkElement?.attributes['href'] ?? '';
-        final String detailUrl = (href.isNotEmpty) ? "https://$node$href" : '';
+      final Element? divElement = novelItem.querySelector("div");
+      final Element? detailLinkElement = divElement?.querySelector("a");
+      final String href = detailLinkElement?.attributes['href'] ?? '';
+      final String detailUrl = href.isEmpty ? '' : base.resolve(href).toString();
 
-        if (detailUrl.isEmpty) {
-          continue;
-        }
-
-        if (rawImg == "/images/noimg.jpg" || img.isEmpty) {
-          img = "https://$node/modules/article/images/nocover.jpg";
-        } else {
-          img = ImageUrlHelper.normalize(img);
-        }
-
-        String aid = "";
-
-        final bookIndex = detailUrl.indexOf("book/");
-        final htmIndex = detailUrl.indexOf(".htm");
-        if (bookIndex != -1 && htmIndex != -1 && htmIndex > bookIndex + 5) {
-          aid = detailUrl.substring(bookIndex + 5, htmIndex);
-        } else {
-          final aidIndex = detailUrl.indexOf("aid=");
-          final bidIndex = detailUrl.indexOf("&bid=");
-          if (aidIndex != -1 && bidIndex != -1 && bidIndex > aidIndex + 4) {
-            aid = detailUrl.substring(aidIndex + 4, bidIndex);
-          }
-        }
-
-        if (title != "" && detailUrl.isNotEmpty) {
-          result.add(NovelCover(title, img, aid));
-        }
-      } catch (e, stackTrace) {
-        Log.e(stackTrace);
+      if (detailUrl.isEmpty) {
+        throw const ParseException('list', 'book link missing');
       }
+
+      if (rawImg == "/images/noimg.jpg" || img.isEmpty) {
+        img = base.resolve('/modules/article/images/nocover.jpg').toString();
+      } else {
+        img = ImageUrlHelper.normalize(img);
+      }
+
+      final aid = _bookId(detailUrl);
+
+      if (title.isEmpty || !RegExp(r'^\d+$').hasMatch(aid)) throw const ParseException('list', 'book identity missing');
+      result.add(NovelCover(title, img, aid));
     }
 
     return result;
   }
 
-  static List<NovelCover> parseOtherBookshelfToList(String html) {
+  static List<NovelCover> parseOtherBookshelfToList(String html) => ParseException.guard('parseOtherBookshelfToList', () {
+    SiteResponse.validatePage(html);
+    if (isError(html)) throw const ParseException('parseOtherBookshelfToList', 'site error');
+    return _parseOtherBookshelfToList(html);
+  });
+
+  static List<NovelCover> _parseOtherBookshelfToList(String html) {
     final List<NovelCover> list = [];
     final Document document = parse(html);
     final Element? content = document.getElementById('centerm');
-    if (content != null) {
-      final List<Element> trElements = content.getElementsByTagName('tr');
-      for (int index = 1; index < trElements.length; index++) {
-        final Element element = trElements[index];
-        final List<Element> anchorElements = element.getElementsByTagName('a');
-        if (anchorElements.length >= 2) {
-          final String title = anchorElements[0].text.trim();
-          final String href = anchorElements[1].attributes['href'] ?? '';
-          final String aid = Uri.parse(href).queryParameters['bid'] ?? '';
-          list.add(NovelCover(title, null, aid));
-        }
+    if (content == null) throw const ParseException('otherBookshelf', 'content missing');
+    if (content.querySelector('table') == null && !_emptyNotice(content.text)) {
+      throw const ParseException('otherBookshelf', 'table missing');
+    }
+    final List<Element> trElements = content.getElementsByTagName('tr');
+    if (trElements.length < 2 && !_emptyNotice(content.text)) throw const ParseException('otherBookshelf', 'unrecognized empty table');
+    for (int index = 1; index < trElements.length; index++) {
+      final Element element = trElements[index];
+      final List<Element> anchorElements = element.getElementsByTagName('a');
+      if (anchorElements.length >= 2) {
+        final String title = anchorElements[0].text.trim();
+        final String href = anchorElements[1].attributes['href'] ?? '';
+        final String aid = Uri.parse(href).queryParameters['bid'] ?? '';
+        if (title.isEmpty || !RegExp(r'^\d+$').hasMatch(aid)) throw const ParseException('otherBookshelf', 'book identity missing');
+        list.add(NovelCover(title, null, aid));
+      } else if (element.text.trim().isNotEmpty && !_emptyNotice(element.text)) {
+        throw const ParseException('otherBookshelf', 'incomplete book row');
       }
     }
     return list;
   }
 
-  static NovelDetail getNovelDetail(String html) {
+  static NovelDetail getNovelDetail(String html) => ParseException.guard('getNovelDetail', () {
+    SiteResponse.validatePage(html);
+    if (isError(html)) throw const ParseException('getNovelDetail', 'site error');
+    return _getNovelDetail(html);
+  });
+
+  static NovelDetail _getNovelDetail(String html) {
     bool isOffShelves = false;
     final Document document = parse(html);
     final Element? t1 = document.getElementById('content');
     final Element t2 = t1!.getElementsByTagName('table')[0];
     final String title = t2.querySelector('span > b')?.text.trim() ?? '';
+    if (title.isEmpty) throw const ParseException('detail', 'title missing');
     final trs = t2.getElementsByTagName('tr');
     final tds = trs[2].getElementsByTagName('td');
     final String author = tds[1].text.trim().substring(5);
@@ -178,14 +199,20 @@ class Parser {
     return pageCount;
   }
 
-  static List<RecommendBlock> getRecommend(String html) {
+  static List<RecommendBlock> getRecommend(String html) => ParseException.guard('getRecommend', () {
+    SiteResponse.validatePage(html);
+    if (isError(html)) throw const ParseException('getRecommend', 'site error');
+    return _getRecommend(html);
+  });
+
+  static List<RecommendBlock> _getRecommend(String html) {
     Document document = parse(html);
     Element? a = document.getElementById("centers");
+    if (a == null) throw const ParseException('recommend', 'content missing');
     List<RecommendBlock> recommendBlockList = [];
     for (int i = 1; i <= 3; i++) {
       List<NovelCover> blockList = [];
-      Element? block = a?.getElementsByClassName("block")[i];
-      if (block == null) continue;
+      final block = a.getElementsByClassName("block")[i];
       String blockTitle = block.getElementsByClassName("blocktitle")[0].text;
       if (i == 1) {
         blockTitle = blockTitle.split("(")[0];
@@ -195,7 +222,8 @@ class Parser {
         String title = j.getElementsByTagName("a")[1].text;
         String img = ImageUrlHelper.normalize(j.getElementsByTagName("img")[0].attributes["src"] ?? "");
         String url = j.getElementsByTagName("a")[0].attributes["href"] ?? "";
-        String aid = url.contains("book/") ? url.substring(url.indexOf("book/") + 5, url.indexOf(".htm")) : "";
+        String aid = _bookId(url);
+        if (title.trim().isEmpty || !RegExp(r'^\d+$').hasMatch(aid)) throw const ParseException('recommend', 'book identity missing');
         blockList.add(NovelCover(title, img, aid));
       }
       recommendBlockList.add(RecommendBlock(blockTitle, blockList));
@@ -213,10 +241,11 @@ class Parser {
           String title = j.getElementsByTagName("a")[1].text;
           final String img = ImageUrlHelper.normalize(j.getElementsByTagName("img")[0].attributes["src"] ?? "");
           String url = j.getElementsByTagName("a")[0].attributes["href"] ?? "";
-          String aid = url.contains("book/") ? url.substring(url.indexOf("book/") + 5, url.indexOf(".htm")) : "";
+          String aid = _bookId(url);
+          if (title.trim().isEmpty || !RegExp(r'^\d+$').hasMatch(aid)) throw const ParseException('recommend', 'book identity missing');
           blockList.add(NovelCover(title, img, aid));
-        } catch (e) {
-          continue;
+        } on RangeError {
+          throw const ParseException('recommend', 'book fields missing');
         }
       }
       recommendBlockList.add(RecommendBlock(blockTitle, blockList));
@@ -225,11 +254,17 @@ class Parser {
     return recommendBlockList;
   }
 
-  static List<CatVolume> getCatalogue(String html) {
+  static List<CatVolume> getCatalogue(String html) => ParseException.guard('getCatalogue', () {
+    SiteResponse.validatePage(html);
+    if (isError(html)) throw const ParseException('getCatalogue', 'site error');
+    return _getCatalogue(html);
+  });
+
+  static List<CatVolume> _getCatalogue(String html) {
     final document = parse(html);
 
     final table = document.querySelector('table.css');
-    if (table == null) return [];
+    if (table == null) throw const ParseException('catalogue', 'table missing');
 
     final rows = table.querySelectorAll('tr');
     final List<CatVolume> volumes = [];
@@ -251,19 +286,19 @@ class Parser {
       final ccssTds = row.querySelectorAll('td.ccss');
       for (var td in ccssTds) {
         final linkEl = td.querySelector('a');
-        if (linkEl == null) continue;
+        if (linkEl == null) {
+          if (td.text.trim().isEmpty && td.children.isEmpty) continue;
+          throw const ParseException('catalogue', 'chapter link missing');
+        }
 
         final title = linkEl.text.trim();
         final href = linkEl.attributes['href']?.trim() ?? '';
 
-        if (title.isEmpty || href.isEmpty) continue;
+        if (title.isEmpty || href.isEmpty) throw const ParseException('catalogue', 'chapter identity missing');
 
-        String cid = '';
-        final parts = href.split('&cid=');
-        if (parts.length > 1) {
-          cid = parts.last;
-        }
+        final cid = Uri.tryParse(href)?.queryParameters['cid'] ?? '';
 
+        if (!RegExp(r'^\d+$').hasMatch(cid) || currentVolumeTitle == null) throw const ParseException('catalogue', 'chapter identity missing');
         currentChapters.add(CatChapter(title: title, cid: cid));
       }
     }
@@ -275,7 +310,13 @@ class Parser {
     return volumes;
   }
 
-  static List<CommentItem> getComment(String html) {
+  static List<CommentItem> getComment(String html, {String Function(String)? dateFormatter}) => ParseException.guard('getComment', () {
+    SiteResponse.validatePage(html);
+    if (isError(html)) throw const ParseException('getComment', 'site error');
+    return _getComment(html, dateFormatter: dateFormatter);
+  });
+
+  static List<CommentItem> _getComment(String html, {String Function(String)? dateFormatter}) {
     final document = parse(html);
     final contentEl = document.getElementById('content');
     if (contentEl == null) {
@@ -291,14 +332,12 @@ class Parser {
     for (final row in rows) {
       if (row.attributes.containsKey('align')) continue;
       final tds = row.getElementsByTagName('td');
-      if (tds.length < 4) continue;
-      final a0 = tds[0].querySelector('a');
-      var reply = a0?.attributes['href'] ?? '';
-      RegExp regExp = RegExp(r"rid=(\d+)");
-      RegExpMatch? match = regExp.firstMatch(reply);
-      if (match != null) {
-        reply = match.group(1)!;
+      if (tds.length < 4) {
+        if (row.querySelector('th') != null || _emptyNotice(row.text)) continue;
+        throw const ParseException('comment', 'incomplete row');
       }
+      final a0 = tds[0].querySelector('a');
+      final reply = Uri.tryParse(a0?.attributes['href'] ?? '')?.queryParameters['rid'] ?? '';
       final contentText = a0?.text.trim() ?? '';
       final viewAndReply = tds[1].text.trim();
       final idx = viewAndReply.indexOf('/');
@@ -307,9 +346,12 @@ class Parser {
       final a2 = tds[2].querySelector('a');
       final userName = a2?.text.trim() ?? '';
       final href2 = a2?.attributes['href'] ?? '';
-      final uid = href2.contains('uid=') ? href2.split('uid=').last : '';
+      final uid = Uri.tryParse(href2)?.queryParameters['uid'] ?? '';
+      if (contentText.isEmpty || !RegExp(r'^\d+$').hasMatch(reply) || !RegExp(r'^\d+$').hasMatch(uid)) {
+        throw const ParseException('comment', 'comment identity missing');
+      }
       final timeRaw = tds[3].text.trim();
-      final time = Util.getDateTime(timeRaw);
+      final time = (dateFormatter ?? Util.getDateTime)(timeRaw);
 
       comments.add(CommentItem(rid: reply, content: contentText, replyCount: replyCount, viewCount: viewCount, userName: userName, uid: uid, time: time));
     }
@@ -317,13 +359,20 @@ class Parser {
     return comments;
   }
 
-  static List<ReplyItem> getReply(String html) {
+  static List<ReplyItem> getReply(String html) => ParseException.guard('getReply', () {
+    SiteResponse.validatePage(html);
+    if (isError(html)) throw const ParseException('getReply', 'site error');
+    return _getReply(html);
+  });
+
+  static List<ReplyItem> _getReply(String html) {
     final document = parse(html);
     final Element? a = document.getElementById("content");
     if (a == null) {
-      return [];
+      throw const ParseException('reply', 'content missing');
     }
     final List<Element> b = a.getElementsByTagName("table");
+    if (b.length < 3) throw const ParseException('reply', 'tables missing');
     final List<Element> paddingTables = a.querySelectorAll("table[cellpadding='3']");
     if (paddingTables.length > 1) {
       final Element d = paddingTables[1];
@@ -340,9 +389,7 @@ class Parser {
         break;
       }
       final List<Element> tds = c.querySelectorAll("td");
-      if (tds.length < 2) {
-        continue;
-      }
+      if (tds.length < 2) throw const ParseException('reply', 'incomplete row');
       final Element firstTd = tds[0];
       final Element? userLink = firstTd.querySelector("a");
       String userName = userLink?.text ?? "";
@@ -436,17 +483,29 @@ class Parser {
     return Bookshelf(list: novels, classId: classId.toString());
   }
 
-  static String novelVote(String html) {
+  static String novelVote(String html) => ParseException.guard('novelVote', () {
+    SiteResponse.validatePage(html);
+    if (isError(html)) throw const ParseException('novelVote', 'site error');
+    return _novelVote(html);
+  });
+
+  static String _novelVote(String html) {
     Document document = parse(html);
     var blockContent = document.getElementsByClassName("blockcontent");
     if (blockContent.isNotEmpty) {
       var targetDiv = blockContent[0].querySelector("div[style='padding:10px']");
       return targetDiv!.text;
     }
-    return "";
+    throw const ParseException('vote', 'result missing');
   }
 
-  static UserInfo getUserInfo(String html) {
+  static UserInfo getUserInfo(String html) => ParseException.guard('getUserInfo', () {
+    SiteResponse.validatePage(html);
+    if (isError(html)) throw const ParseException('getUserInfo', 'site error');
+    return _getUserInfo(html);
+  });
+
+  static UserInfo _getUserInfo(String html) {
     Document document = parse(html);
     Element content = document.getElementById('content')!;
     Element tbody = content.querySelector('tbody')!;
@@ -522,7 +581,14 @@ class Parser {
     }
   }
 
-  static Content getContent(String html) {
+  static Content getContent(String html) => ParseException.guard('getContent', () {
+    SiteResponse.validatePage(html);
+    if (isError(html)) throw const ParseException('getContent', 'site error');
+    return _getContent(html);
+  });
+
+  static Content _getContent(String html) {
+    SiteResponse.validateChapter(html);
     // 解析HTML并提取核心内容
     Document document = parse(html);
     Element contentElement = document.getElementById('content')!;

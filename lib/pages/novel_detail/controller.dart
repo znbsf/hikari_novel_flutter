@@ -37,7 +37,43 @@ T _findOrPut<T>(T Function() creator) {
 class NovelDetailController extends GetxController with GetSingleTickerProviderStateMixin {
   final String aid;
 
-  NovelDetailController({required this.aid});
+  NovelDetailController({
+    required this.aid,
+    Future<NovelDetail> Function(String)? fetchDetail,
+    Future<String?> Function(String)? readCache,
+    Future<void> Function(String, NovelDetail)? saveDetail,
+    Future<bool> Function(String)? checkShelf,
+    SessionCoordinator? session,
+  }) : _fetchDetail = fetchDetail ?? _fetchRemote,
+       _readCache = readCache ?? ((aid) async => (await AppDatabase.instance.getNovelDetail(aid))?.json),
+       _saveDetail = saveDetail ?? _persistDetail,
+       _checkShelf = checkShelf ?? ((aid) async => (await AppDatabase.instance.getAllBookshelf()).any((book) => book.aid == aid)),
+       _session = session ?? SessionCoordinator.instance;
+
+  final Future<NovelDetail> Function(String) _fetchDetail;
+  final Future<String?> Function(String) _readCache;
+  final Future<void> Function(String, NovelDetail) _saveDetail;
+  final Future<bool> Function(String) _checkShelf;
+  final SessionCoordinator _session;
+  int _loadGeneration = 0;
+  bool _closed = false;
+  bool _animationInitialized = false;
+  Future<void> _detailWrites = Future.value();
+
+  static Future<NovelDetail> _fetchRemote(String aid) async {
+    final detailResult = await ApiService.instance.getNovelDetail(aid: aid);
+    if (detailResult case Error()) throw StateError('Novel detail request failed');
+    final detail = Parser.getNovelDetail(detailResult.data as String);
+    final catalogueResult = await ApiService.instance.getCatalogue(aid: aid);
+    if (catalogueResult case Error()) throw StateError('Catalogue request failed');
+    detail.catalogue.addAll(Parser.getCatalogue(catalogueResult.data as String));
+    return detail;
+  }
+
+  static Future<void> _persistDetail(String aid, NovelDetail detail) => AppDatabase.instance.transaction(() async {
+    await AppDatabase.instance.upsertNovelDetail(NovelDetailEntityData(aid: aid, json: detail.toString()));
+    await AppDatabase.instance.upsertBrowsingHistory(BrowsingHistoryEntityData(aid: aid, title: detail.title, img: detail.imgUrl, time: DateTime.now()));
+  });
 
   Rx<PageState> pageState = PageState.loading.obs;
   String errorMsg = "";
@@ -55,13 +91,14 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   late final AnimationController _fabAnimationCtr;
   late final Animation<Offset> animation;
 
-  final bookshelfController = Get.find<BookshelfController>();
-  final cacheQueueController = _findOrPut(() => CacheQueueController());
+  late final bookshelfController = Get.find<BookshelfController>();
+  late final cacheQueueController = _findOrPut(() => CacheQueueController());
 
   @override
   void onInit() {
     super.onInit();
     _fabAnimationCtr = AnimationController(vsync: this, duration: const Duration(milliseconds: 100))..forward();
+    _animationInitialized = true;
     animation = _fabAnimationCtr.drive(Tween<Offset>(begin: const Offset(0.0, 2.0), end: Offset.zero).chain(CurveTween(curve: Curves.easeInOut)));
   }
 
@@ -73,7 +110,9 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
 
   @override
   void onClose() {
-    _fabAnimationCtr.dispose();
+    _closed = true;
+    _loadGeneration++;
+    if (_animationInitialized) _fabAnimationCtr.dispose();
     super.onClose();
   }
 
@@ -221,55 +260,50 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   }
 
   Future<void> getNovelDetail() async {
-    late NovelDetail data;
-
-    final nd = await ApiService.instance.getNovelDetail(aid: aid);
-
-    switch (nd) {
-      case Success():
-        data = Parser.getNovelDetail(nd.data);
-        final cat = await ApiService.instance.getCatalogue(aid: aid);
-        switch (cat) {
-          case Success():
-            {
-              data.catalogue.addAll(Parser.getCatalogue(cat.data));
-              novelDetail.value = data;
-
-              AppDatabase.instance.upsertBrowsingHistory(BrowsingHistoryEntityData(aid: aid, title: data.title, img: data.imgUrl, time: DateTime.now()));
-
-              final bs = await AppDatabase.instance.getAllBookshelf();
-              isInBookshelf.value = bs.any((e) => e.aid == aid);
-
-              pageState.value = PageState.success;
-              await AppDatabase.instance.upsertNovelDetail(NovelDetailEntityData(aid: aid, json: novelDetail.value!.toString())); //缓存小说详情
-            }
-          case Error():
-            {
-              //检测本地是否有缓存
-              if (await _getNovelDetailByLocal()) return;
-              errorMsg = cat.error.toString();
-              pageState.value = PageState.error;
-            }
-        }
-      case Error():
-        {
-          //检测本地是否有缓存
-          if (await _getNovelDetailByLocal()) return;
-          errorMsg = nd.error.toString();
-          pageState.value = PageState.error;
-        }
-    }
-  }
-
-  Future<bool> _getNovelDetailByLocal() async {
-    final local = (await AppDatabase.instance.getNovelDetail(aid))?.json;
-
-    if (local == null) {
-      return false;
-    } else {
-      novelDetail.value = NovelDetail.fromString(local);
+    final generation = ++_loadGeneration;
+    final session = _session.generation;
+    bool current() => !_closed && generation == _loadGeneration && _session.isCurrent(session);
+    if (!current()) return;
+    if (novelDetail.value == null) pageState.value = PageState.loading;
+    errorMsg = '';
+    try {
+      final detail = await _fetchDetail(aid);
+      if (!current()) return;
+      final onShelf = await _checkShelf(aid);
+      if (!current()) return;
+      // A stale completion cannot write after a newer local commit.
+      final write = _detailWrites.then((_) async {
+        if (current()) await _saveDetail(aid, detail);
+      });
+      _detailWrites = write.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+      await write;
+      if (!current()) return;
+      novelDetail.value = detail;
+      isInBookshelf.value = onShelf;
       pageState.value = PageState.success;
-      return true;
+    } catch (error) {
+      if (!current()) return;
+      // Parsing failures follow the same fallback as network failures. Never
+      // replace a known-good cache with partially parsed detail/catalogue data.
+      errorMsg = error.toString();
+      if (novelDetail.value != null) {
+        pageState.value = PageState.error;
+        return;
+      }
+      try {
+        final cached = await _readCache(aid);
+        if (!current()) return;
+        if (cached != null) {
+          final detail = NovelDetail.fromString(cached);
+          if (detail.title.trim().isEmpty) throw const FormatException('Invalid cached detail');
+          novelDetail.value = detail;
+          pageState.value = PageState.success;
+          return;
+        }
+      } catch (_) {
+        // Preserve an unreadable cache for later recovery; surface a retry.
+      }
+      if (current()) pageState.value = PageState.error;
     }
   }
 
@@ -330,13 +364,21 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
     _isRemoving = false;
   }
 
-  void recommendThisNovel() async {
-    final result = await ApiService.instance.novelVote(aid: aid);
-    final string = switch (result) {
-      Success() => Parser.novelVote(result.data),
-      Error() => result.error.toString(),
-    };
-    showSnackBar(message: string, context: Get.context!);
+  Future<void> recommendThisNovel() async {
+    final generation = _session.generation;
+    String message;
+    try {
+      final result = await ApiService.instance.novelVote(aid: aid);
+      message = switch (result) {
+        Success() => Parser.novelVote(result.data),
+        Error() => result.error.toString(),
+      };
+    } catch (error) {
+      message = error.toString();
+    }
+    if (_closed || !_session.isCurrent(generation)) return;
+    final context = Get.context;
+    if (context != null && context.mounted) showSnackBar(message: message, context: context);
   }
 
   Future<void> openWithBrowser() async {

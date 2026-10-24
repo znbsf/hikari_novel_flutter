@@ -16,14 +16,27 @@ class RankingController extends PagedListController<NovelCover> {
   RxString ranking = "please_select".tr.obs;
   RxString arg = "".obs;
 
+  Worker? _filterWorker;
+
+  @override
+  void onClose() {
+    _filterWorker?.dispose();
+    easyRefreshController.dispose();
+    super.onClose();
+  }
+
   @override
   void onInit() {
     super.onInit();
     //监听参数变化
-    ever(arg, (value) {
+    _filterWorker = ever(arg, (value) {
+      invalidateQuery();
       easyRefreshController.callRefresh(force: true);
     });
   }
+
+  @override
+  Object get queryKey => arg.value;
 
   @override
   Future<Resource> getData(int index) => ApiService.instance.getNovelByRanking(ranking: arg.value, index: index);

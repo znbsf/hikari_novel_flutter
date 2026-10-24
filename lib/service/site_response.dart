@@ -79,6 +79,9 @@ class SiteResponse {
   static void validatePage(String content) {
     final document = html.parse(content);
     final body = document.getElementById('content');
+    if (document.querySelectorAll('.blocktitle').any((element) => const {'出现错误！', '出現錯誤！'}.contains(element.text.trim()))) {
+      throw const FormatException('Site error response');
+    }
     // A sidebar login form does not turn a real chapter into a login page.
     final login = document.querySelector('form[action*="login"], input[type="password"]');
     final hasChapter =

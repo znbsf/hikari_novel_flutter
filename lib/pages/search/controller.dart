@@ -1,17 +1,18 @@
-import 'package:easy_refresh/easy_refresh.dart';
+import 'dart:async';
+
+import '../../base/paged_list_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/models/novel_cover.dart';
 import 'package:hikari_novel_flutter/models/page_state.dart';
 import 'package:hikari_novel_flutter/models/resource.dart';
 import 'package:hikari_novel_flutter/parser/parser.dart';
-import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 
 import '../../common/database/database.dart';
 import '../../service/api_service.dart';
 
-class SearchController extends GetxController {
-  SearchController({required this.author});
+class SearchController extends PagedListController<NovelCover> {
+  SearchController({required this.author}) : super(initialState: PageState.pleaseSelect, autoLoad: false);
 
   final String? author;
 
@@ -20,19 +21,27 @@ class SearchController extends GetxController {
   RxInt searchMode = 0.obs;
   RxList<String> searchHistory = RxList();
 
-  Rx<PageState> pageState = Rx(PageState.pleaseSelect);
+  StreamSubscription? _historySubscription;
+  Worker? _modeWorker;
 
-  String errorMsg = "";
-
-  int _maxNum = 1;
-  int _index = 0;
-  final RxList<NovelCover> data = RxList();
+  @override
+  void onInit() {
+    super.onInit();
+    var previousKeyword = keywordController.text;
+    keywordController.addListener(() {
+      if (previousKeyword != keywordController.text) {
+        previousKeyword = keywordController.text;
+        invalidateQuery();
+      }
+    });
+    _modeWorker = ever(searchMode, (_) => invalidateQuery());
+  }
 
   @override
   void onReady() {
     super.onReady();
 
-    AppDatabase.instance.getAllSearchHistory().listen((sh) => searchHistory.assignAll(sh.reversed.map((e) => e.keyword)));
+    _historySubscription = AppDatabase.instance.getAllSearchHistory().listen((sh) => searchHistory.assignAll(sh.reversed.map((e) => e.keyword)));
 
     checkIsAuthorSearch(author);
   }
@@ -52,71 +61,47 @@ class SearchController extends GetxController {
     Get.focusScope?.unfocus();
   }
 
-  Future<IndicatorResult> getPage(bool loadMore) async {
-    if (!loadMore) pageState.value = PageState.loading;
+  @override
+  Object get queryKey => (keywordController.text, searchMode.value);
 
-    if (!loadMore) {
-      AppDatabase.instance.upsertSearchHistory(SearchHistoryEntityData(keyword: keywordController.text));
-
-      data.clear();
-      _index = 0;
+  @override
+  Future<Resource> getData(int index) {
+    _rateLimited = false;
+    final keyword = keywordController.text;
+    final mode = searchMode.value;
+    if (index == 1) {
+      // Search history is independent of the network request; catch write errors.
+      AppDatabase.instance.upsertSearchHistory(SearchHistoryEntityData(keyword: keyword)).catchError((Object _) {});
     }
-    if (_index >= _maxNum) {
-      return IndicatorResult.noMore;
-    }
-    _index += 1;
+    return mode == 0
+        ? ApiService.instance.searchNovelByTitle(title: keyword, index: index)
+        : ApiService.instance.searchNovelByAuthor(author: keyword, index: index);
+  }
 
-    Resource result;
-    if (searchMode.value == 0) {
-      result = await ApiService.instance.searchNovelByTitle(title: keywordController.text, index: _index);
-    } else {
-      result = await ApiService.instance.searchNovelByAuthor(author: keywordController.text, index: _index);
-    }
+  @override
+  PageState get emptyState => PageState.empty;
 
-    switch (result) {
-      case Success():
-        {
-          final html = result.data;
-          if (Parser.isError(html)) {
-            if (!loadMore) {
-              pageState.value = PageState.inFiveSecond;
-            } else {
-              showMessageDialog(title: "warning".tr, content: "search_too_quickly_tip".tr);
-            }
+  bool _rateLimited = false;
 
-            return IndicatorResult.fail;
-          }
+  @override
+  PageState get failureState => _rateLimited ? PageState.inFiveSecond : PageState.error;
 
-          final onlyOne = Parser.isSearchResultOnlyOne(html);
+  @override
+  List<NovelCover> getParser(String html) {
+    _rateLimited = Parser.isError(html);
+    if (_rateLimited) throw StateError('search_too_quickly_tip'.tr);
+    final onlyOne = Parser.isSearchResultOnlyOne(html);
+    return onlyOne != null ? [onlyOne] : Parser.parseToList(html);
+  }
 
-          if (!loadMore) {
-            _maxNum = (onlyOne != null) ? 1 : Parser.getMaxNum(html);
-          }
+  @override
+  int getMaxPage(String html) => Parser.isSearchResultOnlyOne(html) != null ? 1 : Parser.getMaxNum(html);
 
-          final parsedHtml = (onlyOne != null) ? <NovelCover>[onlyOne] : Parser.parseToList(html);
-
-          if (parsedHtml.isEmpty) {
-            pageState.value = PageState.empty;
-            return IndicatorResult.noMore;
-          }
-
-          data.addAll(parsedHtml);
-          if (!loadMore) pageState.value = PageState.success;
-          return (onlyOne != null) ? IndicatorResult.noMore : IndicatorResult.success;
-        }
-      case Error():
-        {
-          if (!loadMore) {
-            errorMsg = result.error;
-            pageState.value = PageState.error;
-          } else {
-            showErrorDialog(result.error.toString(), [TextButton(onPressed: Get.back, child: Text("confirm".tr))]);
-          }
-          if (_index > 0) {
-            _index -= 1;
-          }
-          return IndicatorResult.fail;
-        }
-    }
+  @override
+  void onClose() {
+    _historySubscription?.cancel();
+    _modeWorker?.dispose();
+    keywordController.dispose();
+    super.onClose();
   }
 }

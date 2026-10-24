@@ -23,6 +23,16 @@ import '../../models/resource.dart';
 import '../../service/api_service.dart';
 import '../../service/local_storage_service.dart';
 
+T _findOrPut<T>(T Function() creator) {
+  try {
+    return Get.find<T>();
+  } catch (_) {
+    final instance = creator();
+    Get.put<T>(instance);
+    return instance;
+  }
+}
+
 class NovelDetailController extends GetxController with GetSingleTickerProviderStateMixin {
   final String aid;
 
@@ -45,7 +55,7 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   late final Animation<Offset> animation;
 
   final bookshelfController = Get.find<BookshelfController>();
-  final cacheQueueController = Get.findOrPut(() => CacheQueueController());
+  final cacheQueueController = _findOrPut(() => CacheQueueController());
 
   @override
   void onInit() {

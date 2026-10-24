@@ -8,7 +8,7 @@ import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/common/app_translations.dart';
 import 'package:hikari_novel_flutter/common/constants.dart';
 import 'package:hikari_novel_flutter/common/database/database.dart';
-import 'package:hikari_novel_flutter/common/util.dart';
+import 'package:hikari_novel_flutter/common/locale.dart';
 import 'package:hikari_novel_flutter/router/app_pages.dart';
 import 'package:hikari_novel_flutter/router/route_path.dart';
 import 'package:hikari_novel_flutter/service/api_service.dart';
@@ -47,7 +47,7 @@ void main() async {
   }
 
   _init();
-  await Jiffy.setLocale(Util.getCurrentLocale().toString());
+  await Jiffy.setLocale(resolveAppLocale().toString());
   ApiService.instance.initCookie(); //初始化cookie
 
   FlutterNativeSplash.remove();
@@ -78,7 +78,7 @@ class App extends StatelessWidget {
           darkTheme: buildTheme(darkColorScheme),
           themeMode: currentThemeValue,
           translations: AppTranslations(),
-          locale: Util.getCurrentLocale(),
+          locale: resolveAppLocale(),
           fallbackLocale: Locale("zh", "CN"),
           getPages: AppRoutes.mainRoutePages,
           initialRoute: storage.cookie.value != null ? RoutePath.main : RoutePath.welcome, //初始页面

@@ -8,7 +8,6 @@ import 'package:markdown_widget/markdown_widget.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../service/api_service.dart';
-import 'locale.dart';
 
 class Util {
   static String getDateTime(String dateStr) {
@@ -18,8 +17,6 @@ class Util {
     final DateTime inputDate = DateTime.parse(dateStr);
     return Jiffy.parse(inputDate.toString()).fromNow();
   }
-
-  static Locale getCurrentLocale() => resolveAppLocale();
 
   static Future<void> checkUpdate(bool mustNotification) async {
     final response = await ApiService.instance.fetchLatestRelease();

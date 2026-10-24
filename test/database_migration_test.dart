@@ -138,33 +138,92 @@ void main() {
     await dir.delete(recursive: true);
   });
 
-  for (final corruption in [
-    'UPDATE read_history_entity SET aid = NULL WHERE cid = \'c1\'',
-    'UPDATE read_history_entity SET is_latest = 1',
-    'ALTER TABLE read_history_entity ADD COLUMN unexpected TEXT',
-    '''DELETE FROM read_history_entity;
+  // 无法识别的旧阅读记录：与上游 v3->v4 的清空规则结果一致（阅读记录为空），
+  // 但数据库必须能打开，原始行完整归档，其它表不受影响。
+  for (final (version, corruption) in [
+    (2, 'UPDATE read_history_entity SET aid = NULL WHERE cid = \'c1\''),
+    (2, 'UPDATE read_history_entity SET is_latest = 1'),
+    (3, 'UPDATE read_history_entity SET location = NULL'),
+    (2, 'ALTER TABLE read_history_entity ADD COLUMN unexpected TEXT'),
+    (1, 'UPDATE read_history_entity SET reader_mode = 9'),
+    (
+      2,
+      '''DELETE FROM read_history_entity;
       ALTER TABLE read_history_entity RENAME TO old_shape;
       CREATE TABLE read_history_entity (
         cid TEXT PRIMARY KEY, aid TEXT, reader_mode TEXT, is_dual_page INTEGER,
         location INTEGER, progress INTEGER, is_latest INTEGER);
       DROP TABLE old_shape;''',
+    ),
   ]) {
-    test('unrecognized or invalid old data fails without mutation: $corruption', () async {
+    test('v$version unrecognized old data is archived and reading history reset: $corruption', () async {
       final dir = await Directory.systemTemp.createTemp('hikari-migration-invalid-');
       final file = File('${dir.path}/fixture.sqlite');
-      fixture(file, 2, nullable: true);
+      fixture(file, version, nullable: version > 1);
       var raw = sqlite3.open(file.path);
       raw.execute(corruption);
       final before = raw.select('SELECT * FROM read_history_entity').map((r) => r.values.toList()).toList();
+      final others = snapshot(raw);
       raw.dispose();
       final db = AppDatabase.forTesting(NativeDatabase(file));
-      await expectLater(db.select(db.readHistoryEntity).get(), throwsStateError);
-      await db.close();
+      try {
+        expect(await db.select(db.readHistoryEntity).get(), isEmpty);
+        await checkOtherTables(db);
+        // 新表可以正常写入
+        await db.upsertReadHistory(
+          const ReadHistoryEntityData(cid: 'n1', aid: 'a1', readerMode: 1, isDualPage: false, location: 5, progress: 10, isLatest: true),
+        );
+        expect((await db.getReadHistoryByCid('n1'))!.location, 5);
+      } finally {
+        await db.close();
+      }
       raw = sqlite3.open(file.path);
-      expect(raw.select('PRAGMA user_version').single.values.single, 2);
-      expect(raw.select('SELECT * FROM read_history_entity').map((r) => r.values.toList()).toList(), before);
+      expect(raw.select('PRAGMA user_version').single.values.single, 4);
+      expect(raw.select('SELECT * FROM read_history_entity_legacy_v$version').map((r) => r.values.toList()).toList(), before);
+      expect(snapshot(raw), others);
       raw.dispose();
       await dir.delete(recursive: true);
     });
   }
+
+  test('missing reading-history table is recreated instead of blocking the upgrade', () async {
+    final dir = await Directory.systemTemp.createTemp('hikari-migration-missing-');
+    final file = File('${dir.path}/fixture.sqlite');
+    fixture(file, 3);
+    var raw = sqlite3.open(file.path);
+    raw.execute('DROP TABLE read_history_entity');
+    raw.dispose();
+    final db = AppDatabase.forTesting(NativeDatabase(file));
+    try {
+      expect(await db.select(db.readHistoryEntity).get(), isEmpty);
+      await checkOtherTables(db);
+    } finally {
+      await db.close();
+    }
+    raw = sqlite3.open(file.path);
+    expect(raw.select('PRAGMA user_version').single.values.single, 4);
+    raw.dispose();
+    await dir.delete(recursive: true);
+  });
+
+  test('v1 upgrade never overwrites an existing archive table', () async {
+    final dir = await Directory.systemTemp.createTemp('hikari-migration-archive-');
+    final file = File('${dir.path}/fixture.sqlite');
+    fixture(file, 1);
+    var raw = sqlite3.open(file.path);
+    raw.execute('CREATE TABLE read_history_entity_legacy_v1 (marker TEXT)');
+    raw.execute("INSERT INTO read_history_entity_legacy_v1 VALUES ('older archive')");
+    raw.dispose();
+    final db = AppDatabase.forTesting(NativeDatabase(file));
+    try {
+      expect((await db.select(db.readHistoryEntity).get()).map((r) => r.location), [77, 9]);
+    } finally {
+      await db.close();
+    }
+    raw = sqlite3.open(file.path);
+    expect(raw.select('SELECT marker FROM read_history_entity_legacy_v1').single.values, ['older archive']);
+    expect(raw.select('SELECT volume FROM read_history_entity_legacy_v1_2 ORDER BY cid').map((r) => r.values.single), [2, 2]);
+    raw.dispose();
+    await dir.delete(recursive: true);
+  });
 }

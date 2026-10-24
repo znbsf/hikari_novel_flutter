@@ -1,4 +1,7 @@
+import 'package:drift/drift.dart' show Variable;
+
 import 'database/database.dart';
+import 'log.dart';
 
 /// SQL-only upgrades. Original rows stay in legacy tables for recovery; no
 /// cache, account or filesystem mutation belongs in this transaction.
@@ -8,30 +11,22 @@ class Migration {
       throw StateError('Unsupported database upgrade: $from -> $to');
     }
     await db.transaction(() async {
-      if (from < 2) await fromOneToTwo(db);
-      if (from < 3) await fromTwoToThree();
-      await fromThreeToFour(db);
+      if (await _isRecognized(db, versionOne: from < 2)) {
+        // v2/v3 and v4 share the same SQL schema and reading-mode values; v2->v3 only changed cookies.
+        if (from < 2) await _archiveAndCreate(db, 'read_history_entity_legacy_v1', copyRows: true);
+      } else {
+        // Same outcome as upstream's v3->v4 rule (all reading history cleared), but the app still
+        // opens and the unrecognized rows stay archived instead of blocking every database access.
+        Log.e('Unrecognized legacy reading history (v$from); archived and reset');
+        await _archiveAndCreate(db, 'read_history_entity_legacy_v$from', copyRows: false);
+      }
       // Drift writes this again after beforeOpen. Include it here as well so a
       // process interruption cannot leave committed DDL with the old version.
       await db.customStatement('PRAGMA user_version = 4');
     });
   }
 
-  static Future<void> fromOneToTwo(AppDatabase db) async {
-    await _checkColumns(db, true);
-    await _rebuild(db, 'read_history_entity_legacy_v1');
-  }
-
-  // The original change only cleared external cookies, with no SQL change.
-  static Future<void> fromTwoToThree() async {}
-
-  static Future<void> fromThreeToFour(AppDatabase db) async {
-    await _checkColumns(db, false);
-    // v3 and v4 have the same SQL schema and reading-mode values.
-    // No evidence justifies deleting or resetting old reading positions.
-  }
-
-  static Future<void> _checkColumns(AppDatabase db, bool versionOne) async {
+  static Future<bool> _isRecognized(AppDatabase db, {required bool versionOne}) async {
     final columns = await db.customSelect('PRAGMA table_info(read_history_entity)').get();
     final names = columns.map((r) => r.read<String>('name')).toSet();
     final expected = {'cid', 'aid', 'reader_mode', 'is_dual_page', 'location', 'progress', 'is_latest', if (versionOne) 'volume', if (versionOne) 'chapter'};
@@ -40,7 +35,7 @@ class Migration {
         columns.singleWhere((r) => r.read<String>('name') == 'cid').read<int>('pk') != 1 ||
         columns.where((r) => r.read<int>('pk') != 0).length != 1 ||
         columns.any((r) => r.read<String>('type').toUpperCase() != ({'cid', 'aid'}.contains(r.read<String>('name')) ? 'TEXT' : 'INTEGER'))) {
-      throw StateError('Unrecognized legacy reading-history schema; original database retained');
+      return false;
     }
     final invalid = await db.customSelect('''
       SELECT 1 FROM read_history_entity WHERE
@@ -55,15 +50,14 @@ class Migration {
       SELECT aid FROM read_history_entity WHERE is_latest = 1
       GROUP BY aid HAVING COUNT(*) > 1 LIMIT 1
     ''').get();
-    if (invalid.isNotEmpty || ambiguous.isNotEmpty) {
-      throw StateError('Invalid or ambiguous legacy reading history; original database retained');
-    }
+    return invalid.isEmpty && ambiguous.isEmpty;
   }
 
-  static Future<void> _rebuild(AppDatabase db, String archive) async {
+  /// Moves the current table (if any) to a free archive name and creates the v4 table.
+  static Future<void> _archiveAndCreate(AppDatabase db, String archiveBase, {required bool copyRows}) async {
+    final archive = await _tableExists(db, 'read_history_entity') ? await _freeTableName(db, archiveBase) : null;
     // ALTER preserves every original field, even the removed volume/chapter.
-    // A pre-existing archive causes a failure, never an overwrite.
-    await db.customStatement('ALTER TABLE read_history_entity RENAME TO $archive');
+    if (archive != null) await db.customStatement('ALTER TABLE read_history_entity RENAME TO $archive');
     await db.customStatement('''
       CREATE TABLE read_history_entity (
         cid TEXT NOT NULL PRIMARY KEY,
@@ -75,12 +69,26 @@ class Migration {
         is_latest INTEGER NOT NULL CHECK (is_latest IN (0, 1))
       )
     ''');
-    // Preserve every position exactly.
-    await db.customStatement('''
-      INSERT INTO read_history_entity
-        (cid, aid, reader_mode, is_dual_page, location, progress, is_latest)
-      SELECT cid, aid, reader_mode, is_dual_page,
-        location, progress, is_latest FROM $archive
-    ''');
+    if (copyRows && archive != null) {
+      // Preserve every position exactly.
+      await db.customStatement('''
+        INSERT INTO read_history_entity
+          (cid, aid, reader_mode, is_dual_page, location, progress, is_latest)
+        SELECT cid, aid, reader_mode, is_dual_page,
+          location, progress, is_latest FROM $archive
+      ''');
+    }
+  }
+
+  static Future<bool> _tableExists(AppDatabase db, String name) async =>
+      (await db.customSelect("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", variables: [Variable<String>(name)]).get()).isNotEmpty;
+
+  /// An existing archive is never overwritten; a numbered suffix is used instead.
+  static Future<String> _freeTableName(AppDatabase db, String base) async {
+    var name = base;
+    for (var i = 2; await _tableExists(db, name); i++) {
+      name = '${base}_$i';
+    }
+    return name;
   }
 }

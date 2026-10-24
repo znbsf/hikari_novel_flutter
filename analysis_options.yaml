@@ -39,3 +39,4 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    - "**/*.g.dart"

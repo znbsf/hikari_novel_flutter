@@ -144,7 +144,7 @@ class ReaderController extends GetxController {
      */
     final listOnlyWithCid = catalogue.map((cat) => cat.chapters.map((chap) => chap.cid).toList()).toList(); //仅提取含有cid的list
     final targetCid = Get.parameters["cid"]!;
-    final indexPosition = (await compute(_findIndexPositionInCatalogue, {'catalogue': listOnlyWithCid, 'cid': targetCid}))!;
+    final indexPosition = (await compute(findIndexPositionInCatalogue, {'catalogue': listOnlyWithCid, 'cid': targetCid}))!;
 
     currentVolumeIndex = indexPosition[0];
     currentChapterIndex = indexPosition[1];
@@ -662,7 +662,7 @@ class ReaderController extends GetxController {
 
 ///查找目标字符串在二维列表中出现的位置
 ///返回格式：[外层索引, 内层索引]，未找到则返回 null
-List<int>? _findIndexPositionInCatalogue(Map<String, dynamic> args) {
+List<int>? findIndexPositionInCatalogue(Map<String, dynamic> args) {
   final catalogue = args['catalogue'] as List<List<String>>;
   final targetCid = args['cid'] as String;
 

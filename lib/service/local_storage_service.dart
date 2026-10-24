@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/hive_registrar.g.dart';
@@ -61,10 +59,9 @@ class LocalStorageService extends GetxService {
       kReaderParaSpacing = "readerParaSpacing",
       kReaderBottomStatusBarHorizontalSpacing = "readerBottomStatusBarHorizontalSpacing";
 
-  Future<void> init() async {
-    final Directory dir = await getApplicationSupportDirectory();
-    final String path = dir.path;
-    Hive.init("$path/hive");
+  Future<void> init({String? hivePath}) async {
+    final String path = hivePath ?? "${(await getApplicationSupportDirectory()).path}/hive";
+    Hive.init(path);
     Hive.registerAdapters();
     _setting = await Hive.openBox("setting");
     _loginInfo = await Hive.openBox("loginInfo");

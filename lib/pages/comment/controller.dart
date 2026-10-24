@@ -61,21 +61,21 @@ class CommentController extends PagedListController<CommentItem> with GetSingleT
       return "send_comment_tip_2".tr;
     }
 
-    final result = await ApiService.instance.sendComment(aid: aid, title: commentTitleController.text, content: commentContentController.text);
-    commentContentController.clear();
-    switch (result) {
-      case Success():
-        {
-          if (Parser.isError(result.data)) {
-            return "send_failed".tr;
-          } else {
-            return "send_successfully".tr;
-          }
-        }
-      case Error():
-        {
+    final title = commentTitleController.text;
+    final content = commentContentController.text;
+    try {
+      final result = await ApiService.instance.sendComment(aid: aid, title: title, content: content);
+      switch (result) {
+        case Success():
+          if (Parser.isError(result.data)) return "send_failed".tr;
+          // Preserve a draft edited while the request was in flight.
+          if (!isClosed && commentTitleController.text == title && commentContentController.text == content) commentContentController.clear();
+          return "send_successfully".tr;
+        case Error():
           return "network_error".tr;
-        }
+      }
+    } catch (_) {
+      return "send_failed".tr;
     }
   }
 }

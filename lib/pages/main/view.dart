@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/common/extension.dart';
 import 'package:hikari_novel_flutter/pages/main/controller.dart';
-import 'package:hikari_novel_flutter/pages/novel_detail/controller.dart';
+import 'package:hikari_novel_flutter/pages/novel_detail/view.dart';
 
-import '../../common/log.dart';
 import '../../common/common_widgets.dart';
 import '../../router/app_pages.dart';
 import '../../router/app_sub_router.dart';
@@ -87,15 +86,7 @@ Widget _buildContentNavigator(MainController controller) {
     onPopInvokedWithResult: (didPop, _) {
       if (!didPop) {
         //单独处理内层返回事件
-        try {
-          NovelDetailController novelDetailController = Get.find();
-          if (novelDetailController.isSelectionMode.value) {
-            novelDetailController.exitSelectionMode();
-            return;
-          }
-        } catch (_) {
-          Log.i("novelDetailController is null");
-        }
+        if (NovelDetailPage.exitCurrentSelectionMode()) return;
 
         //下面是通用处理方式
         if (Navigator.canPop(Get.context!)) {

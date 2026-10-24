@@ -285,7 +285,11 @@ class _ApiClient {
         data: data,
         options: Options(contentType: Headers.formUrlEncodedContentType),
       );
-      return Success(_decode(response.data as Uint8List, charsetType));
+      final status = response.statusCode ?? 0;
+      if (status < 200 || status >= 300) throw StateError('HTTP $status');
+      final content = _decode(response.data as Uint8List, charsetType);
+      SiteResponse.validatePage(content);
+      return Success(content);
     } catch (e) {
       Log.e(e.toString());
       return Error(e.toString());

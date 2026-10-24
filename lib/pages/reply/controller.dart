@@ -57,21 +57,20 @@ class ReplyController extends PagedListController<ReplyItem> with GetSingleTicke
       return "word_number_too_low_tip".tr;
     }
 
-    final result = await ApiService.instance.sendReply(aid: aid, rid: rid, content: replyContentController.text);
-    replyContentController.clear();
-    switch (result) {
-      case Success():
-        {
-          if (Parser.isError(result.data)) {
-            return "reply_failed".tr;
-          } else {
-            return "reply_successfully".tr;
-          }
-        }
-      case Error():
-        {
+    final content = replyContentController.text;
+    try {
+      final result = await ApiService.instance.sendReply(aid: aid, rid: rid, content: content);
+      switch (result) {
+        case Success():
+          if (Parser.isError(result.data)) return "reply_failed".tr;
+          // Preserve a draft edited while the request was in flight.
+          if (!isClosed && replyContentController.text == content) replyContentController.clear();
+          return "reply_successfully".tr;
+        case Error():
           return "network_error".tr;
-        }
+      }
+    } catch (_) {
+      return "reply_failed".tr;
     }
   }
 }

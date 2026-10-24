@@ -23,7 +23,23 @@ import '../reader/controller.dart' show ReaderArgs;
 class NovelDetailPage extends StatefulWidget {
   final String aid;
 
-  const NovelDetailPage({super.key, required this.aid});
+  const NovelDetailPage({super.key, required this.aid, this.controllerFactory});
+
+  @visibleForTesting
+  final NovelDetailController Function(String aid)? controllerFactory;
+
+  static final Set<_NovelDetailPageState> _pages = {};
+
+  /// Only the visible detail route may consume Back to leave selection mode.
+  static bool exitCurrentSelectionMode() {
+    for (final page in _pages) {
+      if (page.mounted && ModalRoute.of(page.context)?.isCurrent == true && page.controller.isSelectionMode.value) {
+        page.controller.exitSelectionMode();
+        return true;
+      }
+    }
+    return false;
+  }
 
   @override
   State<NovelDetailPage> createState() => _NovelDetailPageState();
@@ -40,12 +56,16 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   void initState() {
     super.initState();
 
-    Get.delete<NovelDetailController>();
-    controller = Get.put(NovelDetailController(aid: widget.aid));
+    // The page owns this instance, including while another detail is above it.
+    controller = widget.controllerFactory?.call(widget.aid) ?? NovelDetailController(aid: widget.aid);
+    controller.onStart();
+    NovelDetailPage._pages.add(this);
   }
 
   @override
   void dispose() {
+    NovelDetailPage._pages.remove(this);
+    controller.onDelete();
     _scrollController.dispose();
     super.dispose();
   }
@@ -110,9 +130,11 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
   }
 
   Widget _buildContent(BuildContext context) {
-    return GetBuilder(
+    return GetBuilder<NovelDetailController>(
       id: "customScrollView",
       init: controller,
+      global: false,
+      autoRemove: false,
       builder: (_) => CustomScrollView(
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
@@ -488,10 +510,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
               child: FloatingActionButton.extended(
                 onPressed: () {
                   if (history == null) return;
-                  Get.toNamed(
-                    RoutePath.reader,
-                    arguments: ReaderArgs(controller.aid, controller.novelDetail.value!.catalogue, history.cid, history.location),
-                  );
+                  Get.toNamed(RoutePath.reader, arguments: ReaderArgs(controller.aid, controller.novelDetail.value!.catalogue, history.cid, history.location));
                 },
                 label: Row(children: [const Icon(Icons.play_arrow), const SizedBox(width: 10), Text("continue_reading".tr)]),
               ),

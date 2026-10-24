@@ -1,23 +1,19 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:hikari_novel_flutter/base/base_list_page_controller.dart';
+import 'package:hikari_novel_flutter/base/paged_list_controller.dart';
 import 'package:hikari_novel_flutter/models/comment_item.dart';
-import 'package:hikari_novel_flutter/models/page_state.dart';
 import 'package:hikari_novel_flutter/models/resource.dart';
-import 'package:hikari_novel_flutter/service/api_service.dart';
 import 'package:hikari_novel_flutter/parser/parser.dart';
+import 'package:hikari_novel_flutter/service/api_service.dart';
 
-class CommentController extends BaseListPageController<CommentItem> with GetSingleTickerProviderStateMixin {
+class CommentController extends PagedListController<CommentItem> with GetSingleTickerProviderStateMixin {
   final String aid;
 
   CommentController({required this.aid});
 
   final commentTitleController = TextEditingController();
   final commentContentController = TextEditingController();
-
-  @override
-  Rx<PageState> pageState = Rx(PageState.loading);
 
   @override
   List<CommentItem> getParser(String html) => Parser.getComment(html);

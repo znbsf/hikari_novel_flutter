@@ -7,25 +7,26 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:hikari_novel_flutter/common/app_paths.dart';
 import 'package:hikari_novel_flutter/common/constants.dart';
 import 'package:hikari_novel_flutter/common/extension.dart';
+import 'package:hikari_novel_flutter/common/system_ui.dart';
 import 'package:hikari_novel_flutter/models/dual_page_mode.dart';
 import 'package:hikari_novel_flutter/models/reader_direction.dart';
 import 'package:hikari_novel_flutter/models/resource.dart';
-import 'package:hikari_novel_flutter/parser/parser.dart';
 import 'package:hikari_novel_flutter/pages/novel_detail/controller.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:hikari_novel_flutter/parser/parser.dart';
+import 'package:hikari_novel_flutter/service/tts_service.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 import 'package:path/path.dart' as path;
 import 'package:ttf_metadata/ttf_metadata.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:hikari_novel_flutter/service/tts_service.dart';
 
 import '../../common/database/database.dart';
 import '../../common/log.dart';
 import '../../models/cat_volume.dart';
 import '../../models/page_state.dart';
 import '../../service/api_service.dart';
-import '../../service/db_service.dart';
 import '../../service/local_storage_service.dart';
 import 'widgets/paper_curl_pager.dart';
 
@@ -204,8 +205,7 @@ class ReaderController extends GetxController {
   }
 
   Future<String?> _getChapterContentFromLocal() async {
-    final dir = await getApplicationSupportDirectory();
-    final file = File("${dir.path}/cached_chapter/${aid}_$cid.txt");
+    final file = AppPaths.cachedChapterFile(aid, cid);
     if (!await file.exists()) return null;
     return await file.readAsString();
   }
@@ -272,14 +272,7 @@ class ReaderController extends GetxController {
 
   void nextChapter() {
     if (currentVolumeIndex + 1 == currentVolumeTotal && currentChapterIndex + 1 == currentChapterTotal) {
-      Get.dialog(
-        AlertDialog(
-          icon: Icon(Icons.warning_amber),
-          title: Text("warning".tr),
-          content: Text("no_next_chapter".tr),
-          actions: [TextButton(onPressed: () => Get.back(), child: Text("confirm".tr))],
-        ),
-      );
+      showMessageDialog(title: "warning".tr, content: "no_next_chapter".tr, icon: Icon(Icons.warning_amber));
     } else {
       if (currentVolumeIndex + 1 != currentVolumeTotal && currentChapterIndex + 1 == currentChapterTotal) {
         currentVolumeIndex++;
@@ -295,14 +288,7 @@ class ReaderController extends GetxController {
 
   void prevChapter() {
     if (currentVolumeIndex - 1 == -1 && currentChapterIndex - 1 == -1) {
-      Get.dialog(
-        AlertDialog(
-          icon: Icon(Icons.warning_amber),
-          title: Text("warning".tr),
-          content: Text("no_previous_chapter".tr),
-          actions: [TextButton(onPressed: Get.back, child: Text("confirm".tr))],
-        ),
-      );
+      showMessageDialog(title: "warning".tr, content: "no_previous_chapter".tr, icon: Icon(Icons.warning_amber));
     } else {
       if (currentVolumeIndex - 1 != -1 && currentChapterIndex - 1 == -1) {
         currentVolumeIndex--;
@@ -318,7 +304,7 @@ class ReaderController extends GetxController {
 
   void setReadHistory() async {
     Log.d("setReadHistory");
-    await DBService.instance.upsertReadHistory(
+    await AppDatabase.instance.upsertReadHistory(
       ReadHistoryEntityData(
         cid: cid,
         aid: aid,
@@ -334,28 +320,28 @@ class ReaderController extends GetxController {
 
   void changeFontSize(double value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(fontSize: value);
-    LocalStorageService.instance.setReaderFontSize(value);
+    LocalStorageService.instance.readerFontSize.value = value;
   }
 
   void changeLineSpacing(double value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(lineSpacing: value);
-    LocalStorageService.instance.setReaderLineSpacing(value);
+    LocalStorageService.instance.readerLineSpacing.value = value;
   }
 
   void changeReaderDirection(ReaderDirection d) {
     readerSettingsState.value = readerSettingsState.value.copyWith(direction: d);
-    LocalStorageService.instance.setReaderDirection(d);
+    LocalStorageService.instance.readerDirection.value = d;
     _setVolumeKeyHandlingEnabled(_volumeKeyPageTurningEnabled);
   }
 
   void changeReaderPageTurningAnimation(bool enabled) {
     readerSettingsState.value = readerSettingsState.value.copyWith(pageTurningAnimation: enabled);
-    LocalStorageService.instance.setReaderPageTurningAnimation(enabled);
+    LocalStorageService.instance.readerPageTurningAnimation.value = enabled;
   }
 
   void changeReaderVolumeKeyPageTurning(bool enabled) {
     readerSettingsState.value = readerSettingsState.value.copyWith(volumeKeyPageTurning: enabled);
-    LocalStorageService.instance.setReaderVolumeKeyPageTurning(enabled);
+    LocalStorageService.instance.readerVolumeKeyPageTurning.value = enabled;
     _setVolumeKeyHandlingEnabled(_volumeKeyPageTurningEnabled);
   }
 
@@ -373,137 +359,129 @@ class ReaderController extends GetxController {
   void changeReaderWakeLock(bool enabled) {
     readerSettingsState.value = readerSettingsState.value.copyWith(wakeLock: enabled);
     WakelockPlus.toggle(enable: enabled);
-    LocalStorageService.instance.setReaderWakeLock(enabled);
+    LocalStorageService.instance.readerWakeLock.value = enabled;
   }
 
   void changeLeftMargin(double value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(leftMargin: value);
-    LocalStorageService.instance.setReaderLeftMargin(value);
+    LocalStorageService.instance.readerLeftMargin.value = value;
   }
 
   void changeTopMargin(double value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(topMargin: value);
-    LocalStorageService.instance.setReaderTopMargin(value);
+    LocalStorageService.instance.readerTopMargin.value = value;
   }
 
   void changeRightMargin(double value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(rightMargin: value);
-    LocalStorageService.instance.setReaderRightMargin(value);
+    LocalStorageService.instance.readerRightMargin.value = value;
   }
 
   void changeBottomMargin(double value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(bottomMargin: value);
-    LocalStorageService.instance.setReaderBottomMargin(value);
+    LocalStorageService.instance.readerBottomMargin.value = value;
   }
 
   void changeDualPageMode(DualPageMode mode) {
     readerSettingsState.value = readerSettingsState.value.copyWith(dualPageMode: mode);
-    LocalStorageService.instance.setReaderDualPageMode(mode);
+    LocalStorageService.instance.readerDualPageMode.value = mode;
   }
 
   void changeDualPageSpacing(double value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(dualPageSpacing: value);
-    LocalStorageService.instance.setReaderDualPageSpacing(value);
+    LocalStorageService.instance.readerDualPageSpacing.value = value;
   }
 
   void changeImmersionMode(bool enabled) {
     readerSettingsState.value = readerSettingsState.value.copyWith(immersionMode: enabled);
     _applyReaderSystemUi(enabled);
-    LocalStorageService.instance.setReaderImmersionMode(enabled);
+    LocalStorageService.instance.readerImmersionMode.value = enabled;
   }
 
   void _applyReaderSystemUi(bool immersive) {
     if (!(Platform.isAndroid || Platform.isIOS)) return;
 
     if (immersive) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      SystemUi.immersive();
       return;
     }
 
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    SystemChrome.setSystemUIOverlayStyle(
-      const SystemUiOverlayStyle(
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarDividerColor: Colors.transparent,
-        statusBarColor: Colors.transparent,
-        systemNavigationBarContrastEnforced: false,
-      ),
-    );
+    SystemUi.edgeToEdge();
   }
 
   void changeShowStatusBar(bool enabled) {
     readerSettingsState.value = readerSettingsState.value.copyWith(showStatusBar: enabled);
-    LocalStorageService.instance.setReaderStatusBar(enabled);
+    LocalStorageService.instance.readerStatusBar.value = enabled;
   }
 
   void changeReaderTextStyleFilePath(String? path) {
     readerSettingsState.value = readerSettingsState.value.copyWith(textStyleFilePath: path);
-    LocalStorageService.instance.setReaderTextStyleFilePath(path);
+    LocalStorageService.instance.readerTextStyleFilePath.value = path;
   }
 
   void changeReaderTextFamily(String? family) {
     readerSettingsState.value = readerSettingsState.value.copyWith(textFamily: family);
-    LocalStorageService.instance.setReaderTextFamily(family);
+    LocalStorageService.instance.readerTextFamily.value = family;
   }
 
   void changeReaderDayTextColor(Color? color) {
     currentTextColor.value = color;
-    LocalStorageService.instance.setReaderDayTextColor(color);
+    LocalStorageService.instance.readerDayTextColor.value = color;
   }
 
   void changeReaderNightTextColor(Color? color) {
     currentTextColor.value = color;
-    LocalStorageService.instance.setReaderNightTextColor(color);
+    LocalStorageService.instance.readerNightTextColor.value = color;
   }
 
   void changeReaderDayBgColor(Color? color) {
     currentBgColor.value = color;
-    LocalStorageService.instance.setReaderDayBgColor(color);
+    LocalStorageService.instance.readerDayBgColor.value = color;
   }
 
   void changeReaderNightBgColor(Color? color) {
     currentBgColor.value = color;
-    LocalStorageService.instance.setReaderNightBgColor(color);
+    LocalStorageService.instance.readerNightBgColor.value = color;
   }
 
   void changeReaderDayBgImage(String? path) {
     currentBgImagePath.value = path;
-    LocalStorageService.instance.setReaderDayBgImage(path);
+    LocalStorageService.instance.readerDayBgImage.value = path;
   }
 
   void changeReaderNightBgImage(String? path) {
     currentBgImagePath.value = path;
-    LocalStorageService.instance.setReaderNightBgImage(path);
+    LocalStorageService.instance.readerNightBgImage.value = path;
   }
 
   void changeReaderParaIndent(int value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(readerParaIndent: value);
-    LocalStorageService.instance.setReaderParaIndent(value);
+    LocalStorageService.instance.readerParaIndent.value = value;
   }
 
   void changeReaderParaSpacing(int value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(readerParaSpacing: value);
-    LocalStorageService.instance.setReaderParaSpacing(value);
+    LocalStorageService.instance.readerParaSpacing.value = value;
   }
 
   void changeReaderBottomStatusBarHorizontalSpacing(int value) {
     readerSettingsState.value = readerSettingsState.value.copyWith(readerBottomStatusBarHorizontalSpacing: value);
-    LocalStorageService.instance.setReaderBottomStatusBarHorizontalSpacing(value);
+    LocalStorageService.instance.readerBottomStatusBarHorizontalSpacing.value = value;
   }
 
   void getTextColor() {
     if (Get.context!.isDarkMode) {
-      currentTextColor.value = LocalStorageService.instance.getReaderNightTextColor();
+      currentTextColor.value = LocalStorageService.instance.readerNightTextColor.value;
     } else {
-      currentTextColor.value = LocalStorageService.instance.getReaderDayTextColor();
+      currentTextColor.value = LocalStorageService.instance.readerDayTextColor.value;
     }
   }
 
   void getBgColor() {
     if (Get.context!.isDarkMode) {
-      currentBgColor.value = LocalStorageService.instance.getReaderNightBgColor();
+      currentBgColor.value = LocalStorageService.instance.readerNightBgColor.value;
     } else {
-      currentBgColor.value = LocalStorageService.instance.getReaderDayBgColor();
+      currentBgColor.value = LocalStorageService.instance.readerDayBgColor.value;
     }
   }
 
@@ -520,8 +498,7 @@ class ReaderController extends GetxController {
       final ext = path.extension(tempPath);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final fileName = "font_$timestamp$ext";
-      final appDir = await getApplicationSupportDirectory();
-      final destDir = Directory('${appDir.path}/font');
+      final destDir = AppPaths.fontDir;
       await destDir.create(recursive: true);
       final destPath = '${destDir.path}/$fileName';
       final destFile = await srcFile.copy(destPath);
@@ -548,8 +525,7 @@ class ReaderController extends GetxController {
   }
 
   Future<void> deleteFontDir() async {
-    final appDir = await getApplicationSupportDirectory();
-    final fontsDir = Directory('${appDir.path}/font');
+    final fontsDir = AppPaths.fontDir;
 
     if (await fontsDir.exists()) {
       await fontsDir.delete(recursive: true);
@@ -570,14 +546,7 @@ class ReaderController extends GetxController {
         isFontFileAvailable.value = false;
 
         if (showDialog) {
-          Get.dialog(
-            AlertDialog(
-              icon: Icon(Icons.warning_amber_outlined),
-              title: Text("warning".tr),
-              content: Text("no_font_file_tip".tr),
-              actions: [TextButton(onPressed: Get.back, child: Text("confirm".tr))],
-            ),
-          );
+          showMessageDialog(title: "warning".tr, content: "no_font_file_tip".tr, icon: Icon(Icons.warning_amber_outlined));
         }
       }
     } else {
@@ -587,9 +556,9 @@ class ReaderController extends GetxController {
 
   void getBgImage() {
     if (Get.context!.isDarkMode) {
-      currentBgImagePath.value = LocalStorageService.instance.getReaderNightBgImage();
+      currentBgImagePath.value = LocalStorageService.instance.readerNightBgImage.value;
     } else {
-      currentBgImagePath.value = LocalStorageService.instance.getReaderDayBgImage();
+      currentBgImagePath.value = LocalStorageService.instance.readerDayBgImage.value;
     }
   }
 
@@ -604,14 +573,13 @@ class ReaderController extends GetxController {
       final ext = path.extension(tempPath);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final fileName = isDark ? "night_$timestamp$ext" : "day_$timestamp$ext";
-      final appDir = await getApplicationSupportDirectory();
-      final destDir = Directory('${appDir.path}/bgImage');
+      final destDir = AppPaths.bgImageDir;
       if (!await destDir.exists()) {
         await destDir.create(recursive: true);
       }
       final destPath = '${destDir.path}/$fileName';
       await srcFile.copy(destPath);
-      final oldPath = isDark ? LocalStorageService.instance.getReaderNightBgImage() : LocalStorageService.instance.getReaderDayBgImage();
+      final oldPath = isDark ? LocalStorageService.instance.readerNightBgImage.value : LocalStorageService.instance.readerDayBgImage.value;
       await _deleteStoredBgImageFile(oldPath);
 
       if (isDark) {
@@ -626,7 +594,7 @@ class ReaderController extends GetxController {
   }
 
   Future<void> clearReaderBgImage(bool isDark) async {
-    final oldPath = isDark ? LocalStorageService.instance.getReaderNightBgImage() : LocalStorageService.instance.getReaderDayBgImage();
+    final oldPath = isDark ? LocalStorageService.instance.readerNightBgImage.value : LocalStorageService.instance.readerDayBgImage.value;
     await _deleteStoredBgImageFile(oldPath);
 
     if (isDark) {
@@ -639,8 +607,7 @@ class ReaderController extends GetxController {
   Future<void> _deleteStoredBgImageFile(String? filePath) async {
     if (filePath == null || filePath.isEmpty) return;
 
-    final appDir = await getApplicationSupportDirectory();
-    final bgDirPath = path.normalize(path.join(appDir.path, 'bgImage'));
+    final bgDirPath = path.normalize(AppPaths.bgImageDir.path);
     final targetPath = path.normalize(filePath);
     if (!path.isWithin(bgDirPath, targetPath)) return;
 
@@ -651,8 +618,7 @@ class ReaderController extends GetxController {
   }
 
   Future<void> deleteBgImageDir() async {
-    final appDir = await getApplicationSupportDirectory();
-    final fontsDir = Directory('${appDir.path}/bgImage');
+    final fontsDir = AppPaths.bgImageDir;
 
     if (await fontsDir.exists()) {
       await fontsDir.delete(recursive: true);
@@ -802,32 +768,32 @@ class ReaderSettingsState {
   );
 
   ReaderSettingsState.init()
-    : direction = LocalStorageService.instance.getReaderDirection(),
-      pageTurningAnimation = LocalStorageService.instance.getReaderPageTurningAnimation(),
-      volumeKeyPageTurning = LocalStorageService.instance.getReaderVolumeKeyPageTurning(),
-      wakeLock = LocalStorageService.instance.getReaderWakeLock(),
-      dualPageMode = LocalStorageService.instance.getReaderDualPageMode(),
-      dualPageSpacing = LocalStorageService.instance.getReaderDualPageSpacing(),
-      immersionMode = LocalStorageService.instance.getReaderImmersionMode(),
-      showStatusBar = LocalStorageService.instance.getReaderStatusBar(),
-      fontSize = LocalStorageService.instance.getReaderFontSize(),
-      lineSpacing = LocalStorageService.instance.getReaderLineSpacing(),
-      leftMargin = LocalStorageService.instance.getReaderLeftMargin(),
-      topMargin = LocalStorageService.instance.getReaderTopMargin(),
-      rightMargin = LocalStorageService.instance.getReaderRightMargin(),
-      bottomMargin = LocalStorageService.instance.getReaderBottomMargin(),
-      textColor = LocalStorageService.instance.getReaderDayTextColor(),
-      bgColor = LocalStorageService.instance.getReaderDayBgColor(),
-      textStyleFilePath = LocalStorageService.instance.getReaderTextStyleFilePath(),
-      textFamily = LocalStorageService.instance.getReaderTextFamily(),
-      bgImagePath = LocalStorageService.instance.getReaderDayBgImage(),
-      readerDayBgImage = LocalStorageService.instance.getReaderDayBgImage(),
-      readerNightBgImage = LocalStorageService.instance.getReaderNightBgImage(),
-      readerDayTextColor = LocalStorageService.instance.getReaderDayTextColor(),
-      readerNightTextColor = LocalStorageService.instance.getReaderNightTextColor(),
-      readerDayBgColor = LocalStorageService.instance.getReaderDayBgColor(),
-      readerNightBgColor = LocalStorageService.instance.getReaderNightBgColor(),
-      readerParaIndent = LocalStorageService.instance.getReaderParaIndent(),
-      readerParaSpacing = LocalStorageService.instance.getReaderParaSpacing(),
-      readerBottomStatusBarHorizontalSpacing = LocalStorageService.instance.getReaderBottomStatusBarHorizontalSpacing();
+    : direction = LocalStorageService.instance.readerDirection.value,
+      pageTurningAnimation = LocalStorageService.instance.readerPageTurningAnimation.value,
+      volumeKeyPageTurning = LocalStorageService.instance.readerVolumeKeyPageTurning.value,
+      wakeLock = LocalStorageService.instance.readerWakeLock.value,
+      dualPageMode = LocalStorageService.instance.readerDualPageMode.value,
+      dualPageSpacing = LocalStorageService.instance.readerDualPageSpacing.value,
+      immersionMode = LocalStorageService.instance.readerImmersionMode.value,
+      showStatusBar = LocalStorageService.instance.readerStatusBar.value,
+      fontSize = LocalStorageService.instance.readerFontSize.value,
+      lineSpacing = LocalStorageService.instance.readerLineSpacing.value,
+      leftMargin = LocalStorageService.instance.readerLeftMargin.value,
+      topMargin = LocalStorageService.instance.readerTopMargin.value,
+      rightMargin = LocalStorageService.instance.readerRightMargin.value,
+      bottomMargin = LocalStorageService.instance.readerBottomMargin.value,
+      textColor = LocalStorageService.instance.readerDayTextColor.value,
+      bgColor = LocalStorageService.instance.readerDayBgColor.value,
+      textStyleFilePath = LocalStorageService.instance.readerTextStyleFilePath.value,
+      textFamily = LocalStorageService.instance.readerTextFamily.value,
+      bgImagePath = LocalStorageService.instance.readerDayBgImage.value,
+      readerDayBgImage = LocalStorageService.instance.readerDayBgImage.value,
+      readerNightBgImage = LocalStorageService.instance.readerNightBgImage.value,
+      readerDayTextColor = LocalStorageService.instance.readerDayTextColor.value,
+      readerNightTextColor = LocalStorageService.instance.readerNightTextColor.value,
+      readerDayBgColor = LocalStorageService.instance.readerDayBgColor.value,
+      readerNightBgColor = LocalStorageService.instance.readerNightBgColor.value,
+      readerParaIndent = LocalStorageService.instance.readerParaIndent.value,
+      readerParaSpacing = LocalStorageService.instance.readerParaSpacing.value,
+      readerBottomStatusBarHorizontalSpacing = LocalStorageService.instance.readerBottomStatusBarHorizontalSpacing.value;
 }

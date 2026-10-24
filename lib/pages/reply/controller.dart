@@ -1,23 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:hikari_novel_flutter/base/base_list_page_controller.dart';
+import 'package:hikari_novel_flutter/base/paged_list_controller.dart';
 import 'package:hikari_novel_flutter/models/reply_item.dart';
 
-import '../../models/page_state.dart';
 import '../../models/resource.dart';
-import '../../service/api_service.dart';
 import '../../parser/parser.dart';
+import '../../service/api_service.dart';
 
-class ReplyController extends BaseListPageController<ReplyItem> with GetSingleTickerProviderStateMixin {
+class ReplyController extends PagedListController<ReplyItem> with GetSingleTickerProviderStateMixin {
   final String aid;
   final String rid;
 
   ReplyController({required this.aid, required this.rid});
 
   final replyContentController = TextEditingController();
-
-  @override
-  Rx<PageState> pageState = Rx(PageState.loading);
 
   @override
   Future<Resource> getData(int index) => ApiService.instance.getReply(rid: rid, index: index);

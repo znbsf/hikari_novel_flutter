@@ -5,11 +5,10 @@ import 'package:hikari_novel_flutter/models/novel_cover.dart';
 import 'package:hikari_novel_flutter/models/page_state.dart';
 import 'package:hikari_novel_flutter/models/resource.dart';
 import 'package:hikari_novel_flutter/parser/parser.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 
 import '../../common/database/database.dart';
 import '../../service/api_service.dart';
-import '../../service/db_service.dart';
-import '../../widgets/state_page.dart';
 
 class SearchController extends GetxController {
   SearchController({required this.author});
@@ -33,7 +32,7 @@ class SearchController extends GetxController {
   void onReady() {
     super.onReady();
 
-    DBService.instance.getAllSearchHistory().listen((sh) => searchHistory.assignAll(sh.reversed.map((e) => e.keyword)));
+    AppDatabase.instance.getAllSearchHistory().listen((sh) => searchHistory.assignAll(sh.reversed.map((e) => e.keyword)));
 
     checkIsAuthorSearch(author);
   }
@@ -57,7 +56,7 @@ class SearchController extends GetxController {
     if (!loadMore) pageState.value = PageState.loading;
 
     if (!loadMore) {
-      DBService.instance.upsertSearchHistory(SearchHistoryEntityData(keyword: keywordController.text));
+      AppDatabase.instance.upsertSearchHistory(SearchHistoryEntityData(keyword: keywordController.text));
 
       data.clear();
       _index = 0;
@@ -82,13 +81,7 @@ class SearchController extends GetxController {
             if (!loadMore) {
               pageState.value = PageState.inFiveSecond;
             } else {
-              Get.dialog(
-                AlertDialog(
-                  title: Text("warning".tr),
-                  content: Text("search_too_quickly_tip".tr),
-                  actions: [TextButton(onPressed: Get.back, child: Text("confirm".tr))],
-                ),
-              );
+              showMessageDialog(title: "warning".tr, content: "search_too_quickly_tip".tr);
             }
 
             return IndicatorResult.fail;

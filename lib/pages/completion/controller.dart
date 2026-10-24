@@ -1,16 +1,11 @@
-import 'package:get/get.dart';
-import 'package:hikari_novel_flutter/base/base_list_page_controller.dart';
-import 'package:hikari_novel_flutter/models/page_state.dart';
+import 'package:hikari_novel_flutter/base/paged_list_controller.dart';
 
 import '../../models/novel_cover.dart';
 import '../../models/resource.dart';
-import '../../service/api_service.dart';
 import '../../parser/parser.dart';
+import '../../service/api_service.dart';
 
-class CompletionController extends BaseListPageController<NovelCover> {
-  @override
-  Rx<PageState> pageState = Rx(PageState.loading);
-
+class CompletionController extends PagedListController<NovelCover> {
   @override
   Future<Resource> getData(int index) {
     return ApiService.instance.getCompletionNovel(index: index);

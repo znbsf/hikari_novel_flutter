@@ -2,38 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/models/resource.dart';
 import 'package:hikari_novel_flutter/service/local_storage_service.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 import 'package:jiffy/jiffy.dart';
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import '../models/common/language.dart';
+
 import '../service/api_service.dart';
+import 'locale.dart';
 
 class Util {
   static String getDateTime(String dateStr) {
-    if (!LocalStorageService.instance.getIsRelativeTime()) {
+    if (!LocalStorageService.instance.isRelativeTime.value) {
       return dateStr;
     }
     final DateTime inputDate = DateTime.parse(dateStr);
     return Jiffy.parse(inputDate.toString()).fromNow();
   }
 
-  static Locale getCurrentLocale() {
-    final language = LocalStorageService.instance.getLanguage();
-    if (language == Language.followSystem) {
-      if (Get.deviceLocale == Locale("zh", "CN")) {
-        return Locale("zh", "CN");
-      } else if (Get.deviceLocale == Locale("zh", "TW")) {
-        return Locale("zh", "TW");
-      } else {
-        return Locale("zh", "CN");
-      }
-    }
-    return switch (language) {
-      Language.simplifiedChinese => Locale("zh", "CN"),
-      Language.traditionalChinese => Locale("zh", "TW"),
-      _ => Locale("zh", "CN"),
-    };
-  }
+  static Locale getCurrentLocale() => resolveAppLocale();
 
   static Future<void> checkUpdate(bool mustNotification) async {
     final response = await ApiService.instance.fetchLatestRelease();
@@ -70,13 +56,7 @@ class Util {
       );
     } else {
       if (mustNotification) {
-        Get.dialog(
-          AlertDialog(
-            title: Text("check_update".tr),
-            content: Text(response.error.toString()),
-            actions: [TextButton(onPressed: Get.back, child: Text("confirm".tr))],
-          ),
-        );
+        showMessageDialog(title: "check_update".tr, content: response.error.toString());
       }
     }
   }

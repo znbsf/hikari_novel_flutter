@@ -1,12 +1,18 @@
+import 'package:easy_refresh/easy_refresh.dart';
 import 'package:get/get.dart';
-import 'package:hikari_novel_flutter/base/base_select_list_page_controller.dart';
+import 'package:hikari_novel_flutter/base/paged_list_controller.dart';
+import 'package:hikari_novel_flutter/models/page_state.dart';
 
 import '../../models/novel_cover.dart';
 import '../../models/resource.dart';
-import '../../service/api_service.dart';
 import '../../parser/parser.dart';
+import '../../service/api_service.dart';
 
-class RankingController extends BaseSelectListPageController<NovelCover> {
+class RankingController extends PagedListController<NovelCover> {
+  RankingController() : super(initialState: PageState.pleaseSelect, autoLoad: false);
+
+  final EasyRefreshController easyRefreshController = EasyRefreshController();
+
   RxString ranking = "please_select".tr.obs;
   RxString arg = "".obs;
 

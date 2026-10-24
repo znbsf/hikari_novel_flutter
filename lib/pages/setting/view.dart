@@ -128,7 +128,7 @@ class SettingPage extends StatelessWidget {
   }
 
   void _buildColorPickerDialog(BuildContext context) async {
-    final initColor = LocalStorageService.instance.getCustomColor();
+    final initColor = LocalStorageService.instance.customColor.value;
     final newColor = await showColorPickerDialog(
       context,
       initColor,

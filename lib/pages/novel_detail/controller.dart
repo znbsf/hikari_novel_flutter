@@ -1,17 +1,18 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:hikari_novel_flutter/common/app_paths.dart';
 import 'package:hikari_novel_flutter/common/constants.dart';
 import 'package:hikari_novel_flutter/common/extension.dart';
 import 'package:hikari_novel_flutter/models/chapter_cache_task.dart';
 import 'package:hikari_novel_flutter/models/common/wenku8_node.dart';
 import 'package:hikari_novel_flutter/models/novel_detail.dart';
 import 'package:hikari_novel_flutter/models/reader_direction.dart';
-import 'package:hikari_novel_flutter/parser/parser.dart';
 import 'package:hikari_novel_flutter/pages/bookshelf/controller.dart';
 import 'package:hikari_novel_flutter/pages/cache_queue/controller.dart';
-import 'package:hikari_novel_flutter/widgets/state_page.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:hikari_novel_flutter/parser/parser.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../common/database/database.dart';
@@ -20,7 +21,6 @@ import '../../models/dual_page_mode.dart';
 import '../../models/page_state.dart';
 import '../../models/resource.dart';
 import '../../service/api_service.dart';
-import '../../service/db_service.dart';
 import '../../service/local_storage_service.dart';
 
 class NovelDetailController extends GetxController with GetSingleTickerProviderStateMixin {
@@ -47,8 +47,6 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   final bookshelfController = Get.find<BookshelfController>();
   final cacheQueueController = Get.findOrPut(() => CacheQueueController());
 
-  late final Directory _supportDir;
-
   @override
   void onInit() {
     super.onInit();
@@ -57,9 +55,8 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   }
 
   @override
-  void onReady() async {
+  void onReady() {
     super.onReady();
-    _supportDir = await getApplicationSupportDirectory();
     getNovelDetail();
   }
 
@@ -176,8 +173,7 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   }
 
   Future<void> deleteCache() async {
-    final asd = await getApplicationSupportDirectory();
-    final dir = Directory("${asd.path}/cached_chapter");
+    final dir = AppPaths.cachedChapterDir;
 
     if (!await dir.exists()) {
       return;
@@ -206,7 +202,7 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   }
 
   void checkIsChapterCached(String cid) async {
-    if (await File("${_supportDir.path}/cached_chapter/${aid}_$cid.txt").exists()) {
+    if (await AppPaths.cachedChapterFile(aid, cid).exists()) {
       cachedChapter.add(cid);
     } else {
       cachedChapter.remove(cid);
@@ -228,13 +224,13 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
               data.catalogue.addAll(Parser.getCatalogue(cat.data));
               novelDetail.value = data;
 
-              DBService.instance.upsertBrowsingHistory(BrowsingHistoryEntityData(aid: aid, title: data.title, img: data.imgUrl, time: DateTime.now()));
+              AppDatabase.instance.upsertBrowsingHistory(BrowsingHistoryEntityData(aid: aid, title: data.title, img: data.imgUrl, time: DateTime.now()));
 
-              final bs = await DBService.instance.getAllBookshelf();
+              final bs = await AppDatabase.instance.getAllBookshelf();
               isInBookshelf.value = bs.any((e) => e.aid == aid);
 
               pageState.value = PageState.success;
-              await DBService.instance.upsertNovelDetail(NovelDetailEntityData(aid: aid, json: novelDetail.value!.toString())); //缓存小说详情
+              await AppDatabase.instance.upsertNovelDetail(NovelDetailEntityData(aid: aid, json: novelDetail.value!.toString())); //缓存小说详情
             }
           case Error():
             {
@@ -255,7 +251,7 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   }
 
   Future<bool> _getNovelDetailByLocal() async {
-    final local = (await DBService.instance.getNovelDetail(aid))?.json;
+    final local = (await AppDatabase.instance.getNovelDetail(aid))?.json;
 
     if (local == null) {
       return false;
@@ -275,14 +271,7 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
       case Success():
         {
           if (Parser.isError(result.data)) {
-            Get.dialog(
-              AlertDialog(
-                icon: const Icon(Icons.warning_amber_outlined),
-                title: Text("warning".tr),
-                content: Text("add_to_bookshelf_failed_tip".tr),
-                actions: [TextButton(onPressed: Get.back, child: Text("confirm".tr))],
-              ),
-            );
+            showMessageDialog(title: "warning".tr, content: "add_to_bookshelf_failed_tip".tr, icon: const Icon(Icons.warning_amber_outlined));
             isInBookshelf.value = false;
           } else {
             await bookshelfController.refreshDefaultBookshelf();
@@ -301,7 +290,7 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   void removeFromBookshelf() async {
     if (_isRemoving) return;
     _isRemoving = true;
-    final bs = await DBService.instance.getAllBookshelf();
+    final bs = await AppDatabase.instance.getAllBookshelf();
     final delId = bs.firstWhere((i) => i.aid == aid).bid;
     final result = await ApiService.instance.removeNovel(delid: delId);
     switch (result) {
@@ -337,12 +326,12 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
     if (data == null) {
       return false;
     } else {
-      bool isDualPage = switch (LocalStorageService.instance.getReaderDualPageMode()) {
+      bool isDualPage = switch (LocalStorageService.instance.readerDualPageMode.value) {
         DualPageMode.auto => Get.context!.shouldAutoUseDualPage(),
         DualPageMode.enabled => true,
         DualPageMode.disabled => false,
       };
-      bool isSameReaderMode = switch (LocalStorageService.instance.getReaderDirection()) {
+      bool isSameReaderMode = switch (LocalStorageService.instance.readerDirection.value) {
         ReaderDirection.leftToRight => data.readerMode == kPageReadMode,
         ReaderDirection.rightToLeft => data.readerMode == kPageReadMode,
         ReaderDirection.upToDown => data.readerMode == kScrollReadMode,
@@ -356,13 +345,13 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
       return "unread".tr;
     }
 
-    bool isDualPage = switch (LocalStorageService.instance.getReaderDualPageMode()) {
+    bool isDualPage = switch (LocalStorageService.instance.readerDualPageMode.value) {
       DualPageMode.auto => Get.context!.shouldAutoUseDualPage(),
       DualPageMode.enabled => true,
       DualPageMode.disabled => false,
     };
 
-    final currDirection = LocalStorageService.instance.getReaderDirection();
+    final currDirection = LocalStorageService.instance.readerDirection.value;
     if (result.isDualPage == isDualPage) {
       if ((result.readerMode == kScrollReadMode && currDirection == ReaderDirection.upToDown) ||
           (result.readerMode == kPageReadMode && (currDirection == ReaderDirection.leftToRight || currDirection == ReaderDirection.rightToLeft))) {
@@ -380,12 +369,12 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
       return "unread".tr;
     }
 
-    bool isDualPage = switch (LocalStorageService.instance.getReaderDualPageMode()) {
+    bool isDualPage = switch (LocalStorageService.instance.readerDualPageMode.value) {
       DualPageMode.auto => Get.context!.shouldAutoUseDualPage(),
       DualPageMode.enabled => true,
       DualPageMode.disabled => false,
     };
-    final currDirection = LocalStorageService.instance.getReaderDirection();
+    final currDirection = LocalStorageService.instance.readerDirection.value;
     for (ReadHistoryEntityData d in list) {
       if (d.isDualPage == isDualPage) {
         if ((d.readerMode == kScrollReadMode && currDirection == ReaderDirection.upToDown) ||
@@ -408,32 +397,32 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
     }
   }
 
-  void deleteAllReadHistory() async => DBService.instance.deleteAllReadHistory();
+  void deleteAllReadHistory() async => AppDatabase.instance.deleteAllReadHistory();
 
   Future<void> markAsUnRead() async {
     for (var chapter in getSelectedChapters()) {
-      await DBService.instance.deleteReadHistoryByCid(chapter.cid);
+      await AppDatabase.instance.deleteReadHistoryByCid(chapter.cid);
     }
   }
 
   Future<void> markAsRead() async {
     // 1为滚动模式，2为翻页模式，翻页模式的左右方向不影响阅读记录的使用
-    final readerMode = LocalStorageService.instance.getReaderDirection() == ReaderDirection.upToDown ? kScrollReadMode : kPageReadMode;
-    bool isDualPage = switch (LocalStorageService.instance.getReaderDualPageMode()) {
+    final readerMode = LocalStorageService.instance.readerDirection.value == ReaderDirection.upToDown ? kScrollReadMode : kPageReadMode;
+    bool isDualPage = switch (LocalStorageService.instance.readerDualPageMode.value) {
       DualPageMode.auto => Get.context!.shouldAutoUseDualPage(),
       DualPageMode.enabled => true,
       DualPageMode.disabled => false,
     };
 
     for (var chapter in getSelectedChapters()) {
-      final data = await DBService.instance.getReadHistoryByCid(chapter.cid);
+      final data = await AppDatabase.instance.getReadHistoryByCid(chapter.cid);
 
       if (data == null) {
-        DBService.instance.upsertReadHistoryDirectly(
+        AppDatabase.instance.upsertReadHistoryDirectly(
           ReadHistoryEntityData(cid: chapter.cid, aid: aid, readerMode: readerMode, isDualPage: isDualPage, location: 0, progress: 100, isLatest: false),
         );
       } else {
-        DBService.instance.upsertReadHistoryDirectly(
+        AppDatabase.instance.upsertReadHistoryDirectly(
           ReadHistoryEntityData(
             cid: data.cid,
             aid: data.aid,

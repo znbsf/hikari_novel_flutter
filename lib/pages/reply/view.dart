@@ -4,6 +4,7 @@ import 'package:flutter/rendering.dart';
 import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/pages/reply/controller.dart';
 import 'package:hikari_novel_flutter/pages/reply/widgets/reply_card.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 
 import '../../models/page_state.dart';
 import '../../widgets/state_page.dart';

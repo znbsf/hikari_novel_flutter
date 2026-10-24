@@ -1,9 +1,7 @@
-import 'dart:io';
-
+import 'package:hikari_novel_flutter/common/app_paths.dart';
 import 'package:hikari_novel_flutter/service/api_service.dart';
 import 'package:hikari_novel_flutter/service/local_storage_service.dart';
 import 'package:hive_ce/hive.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'database/database.dart';
 
@@ -17,8 +15,7 @@ class Migration {
     }
 
     //删除已缓存的章节。因为数据源不一样，不是该数据源的内容在解析器内会出错
-    final dir = await getApplicationSupportDirectory();
-    final cacheDir = Directory("${dir.path}/cached_chapter");
+    final cacheDir = AppPaths.cachedChapterDir;
     if (await cacheDir.exists()) {
       await cacheDir.delete(recursive: true);
     }
@@ -47,7 +44,7 @@ class Migration {
   }
 
   static void fromTwoToThree() {
-    LocalStorageService.instance.setCookie(null);
+    LocalStorageService.instance.cookie.value = null;
     ApiService.instance.deleteCookie();
   }
 

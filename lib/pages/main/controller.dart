@@ -25,6 +25,6 @@ class MainController extends GetxController {
   @override
   void onReady() {
     super.onReady();
-    if (LocalStorageService.instance.getIsAutoCheckUpdate()) Util.checkUpdate(false);
+    if (LocalStorageService.instance.isAutoCheckUpdate.value) Util.checkUpdate(false);
   }
 }

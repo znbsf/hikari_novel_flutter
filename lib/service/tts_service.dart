@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:get/get.dart';
-import 'package:flutter/widgets.dart';
-import 'package:hikari_novel_flutter/widgets/state_page.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../common/log.dart';
@@ -90,12 +90,12 @@ class TtsService extends GetxService {
       _endSession();
     });
 
-    enabled.value = LocalStorageService.instance.getReaderTtsEnabled();
-    engine.value = LocalStorageService.instance.getReaderTtsEngine();
-    voice.value = LocalStorageService.instance.getReaderTtsVoice();
-    rate.value = LocalStorageService.instance.getReaderTtsRate();
-    pitch.value = LocalStorageService.instance.getReaderTtsPitch();
-    volume.value = LocalStorageService.instance.getReaderTtsVolume();
+    enabled.value = LocalStorageService.instance.readerTtsEnabled.value;
+    engine.value = LocalStorageService.instance.readerTtsEngine.value;
+    voice.value = LocalStorageService.instance.readerTtsVoice.value;
+    rate.value = LocalStorageService.instance.readerTtsRate.value;
+    pitch.value = LocalStorageService.instance.readerTtsPitch.value;
+    volume.value = LocalStorageService.instance.readerTtsVolume.value;
 
     await _tts.setSpeechRate(rate.value);
     await _tts.setPitch(pitch.value);
@@ -121,7 +121,7 @@ class TtsService extends GetxService {
       await applyVoice(savedVoice);
     } else {
       voice.value = null;
-      LocalStorageService.instance.setReaderTtsVoice(null);
+      LocalStorageService.instance.readerTtsVoice.value = null;
     }
   }
 
@@ -173,13 +173,13 @@ class TtsService extends GetxService {
 
   Future<void> setEnabled(bool v) async {
     enabled.value = v;
-    LocalStorageService.instance.setReaderTtsEnabled(v);
+    LocalStorageService.instance.readerTtsEnabled.value = v;
     if (!v) await stop();
   }
 
   Future<void> applyEngine(String? e) async {
     engine.value = e;
-    LocalStorageService.instance.setReaderTtsEngine(e);
+    LocalStorageService.instance.readerTtsEngine.value = e;
     if (Platform.isAndroid && e != null && e.isNotEmpty) {
       try {
         await _tts.setEngine(e);
@@ -192,7 +192,7 @@ class TtsService extends GetxService {
 
   Future<void> applyVoice(Map<String, String>? v) async {
     voice.value = v;
-    LocalStorageService.instance.setReaderTtsVoice(v);
+    LocalStorageService.instance.readerTtsVoice.value = v;
     if (v == null) return;
     try {
       await _tts.setVoice(v);
@@ -203,19 +203,19 @@ class TtsService extends GetxService {
 
   Future<void> setRate(double v) async {
     rate.value = v;
-    LocalStorageService.instance.setReaderTtsRate(v);
+    LocalStorageService.instance.readerTtsRate.value = v;
     await _tts.setSpeechRate(v);
   }
 
   Future<void> setPitch(double v) async {
     pitch.value = v;
-    LocalStorageService.instance.setReaderTtsPitch(v);
+    LocalStorageService.instance.readerTtsPitch.value = v;
     await _tts.setPitch(v);
   }
 
   Future<void> setVolume(double v) async {
     volume.value = v;
-    LocalStorageService.instance.setReaderTtsVolume(v);
+    LocalStorageService.instance.readerTtsVolume.value = v;
     await _tts.setVolume(v);
   }
 

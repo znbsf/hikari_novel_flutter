@@ -3,11 +3,11 @@ import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/pages/bookshelf/controller.dart';
 import 'package:hikari_novel_flutter/pages/bookshelf/widgets/bookshelf_content_view.dart';
 import 'package:hikari_novel_flutter/pages/bookshelf/widgets/bookshelf_search_view.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 
-import '../../common/extension.dart';
 import '../../common/common_widgets.dart';
+import '../../common/extension.dart';
 import '../../models/page_state.dart';
-import '../../widgets/state_page.dart';
 
 class BookshelfPage extends StatelessWidget {
   final controller = Get.put(BookshelfController());

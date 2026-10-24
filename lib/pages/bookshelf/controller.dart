@@ -3,12 +3,11 @@ import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/models/bookshelf.dart';
 import 'package:hikari_novel_flutter/models/page_state.dart';
 import 'package:hikari_novel_flutter/models/resource.dart';
-import 'package:hikari_novel_flutter/service/api_service.dart';
-import 'package:hikari_novel_flutter/parser/parser.dart';
 import 'package:hikari_novel_flutter/pages/main/controller.dart';
+import 'package:hikari_novel_flutter/parser/parser.dart';
+import 'package:hikari_novel_flutter/service/api_service.dart';
 
 import '../../common/database/database.dart';
-import '../../service/db_service.dart';
 
 class BookshelfController extends GetxController with GetTickerProviderStateMixin {
   RxInt tabIndex = 0.obs; //保存tab索引位置
@@ -27,12 +26,12 @@ class BookshelfController extends GetxController with GetTickerProviderStateMixi
   }
 
   Future<void> refreshDefaultBookshelf() async {
-    await DBService.instance.deleteDefaultBookshelf();
+    await AppDatabase.instance.deleteDefaultBookshelf();
     await _insertAll(0);
   }
 
   Future<String> refreshBookshelf() async {
-    await DBService.instance.deleteAllBookshelf();
+    await AppDatabase.instance.deleteAllBookshelf();
 
     final futures = Iterable.generate(6, (index) async {
       final result = await _insertAll(index);
@@ -52,7 +51,7 @@ class BookshelfController extends GetxController with GetTickerProviderStateMixi
             final insertData = bookshelf.list.map((e) {
               return BookshelfEntityData(aid: e.aid, bid: e.bid, url: e.url, title: e.title, img: e.img, classId: bookshelf.classId.toString());
             });
-            await DBService.instance.insertAllBookshelf(insertData);
+            await AppDatabase.instance.insertAllBookshelf(insertData);
           }
           return true;
         }
@@ -82,7 +81,7 @@ class BookshelfContentController extends GetxController {
   void onReady() {
     super.onReady();
 
-    DBService.instance.getBookshelfByClassId(classId).listen((bss) async {
+    AppDatabase.instance.getBookshelfByClassId(classId).listen((bss) async {
       List<BookshelfNovelInfo> list = bss.map((i) => BookshelfNovelInfo(bid: i.bid, aid: i.aid, url: i.url, title: i.title, img: i.img)).toList();
 
       if (list.isEmpty) {
@@ -139,7 +138,7 @@ class BookshelfSearchController extends GetxController {
 
   void getBookshelfByKeyword() async {
     data.assignAll(
-      (await DBService.instance.getBookshelfByKeyword(
+      (await AppDatabase.instance.getBookshelfByKeyword(
         searchTextEditController.text,
       )).map((e) => BookshelfNovelInfo(bid: e.bid, aid: e.aid, url: e.url, title: e.title, img: e.img)),
     );

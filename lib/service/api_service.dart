@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-import 'dart:ui';
 
 import 'package:cookie_jar/cookie_jar.dart' as ckjar;
 import 'package:dio/dio.dart';
@@ -7,20 +6,19 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:enough_convert/enough_convert.dart';
 import 'package:get/get.dart' hide Response;
 import 'package:hikari_novel_flutter/common/constants.dart';
-import 'package:hikari_novel_flutter/common/extension.dart';
 import 'package:hikari_novel_flutter/models/common/charset_type.dart';
-import 'package:hikari_novel_flutter/models/common/language.dart';
 import 'package:hikari_novel_flutter/models/common/wenku8_node.dart';
 import 'package:hikari_novel_flutter/models/custom_exception.dart';
 import 'package:hikari_novel_flutter/models/resource.dart';
 
+import '../common/locale.dart';
 import '../common/log.dart';
 import 'local_storage_service.dart';
 
 class ApiService extends GetxService {
   static ApiService get instance => Get.find<ApiService>();
 
-  Wenku8Node get wenku8Node => LocalStorageService.instance.getWenku8Node();
+  Wenku8Node get wenku8Node => LocalStorageService.instance.wenku8Node.value;
 
   final _ApiClient _client = _ApiClient();
 
@@ -30,24 +28,7 @@ class ApiService extends GetxService {
 
   void deleteCookie() => _client.deleteCookie();
 
-  Language get _language => LocalStorageService.instance.getLanguage();
-
-  CharsetType get charsetType {
-    if (_language == Language.followSystem) {
-      if (Get.deviceLocale == Locale("zh", "CN")) {
-        return CharsetType.gbk;
-      } else if (Get.deviceLocale == Locale("zh", "TW")) {
-        return CharsetType.big5Hkscs;
-      } else {
-        return CharsetType.gbk;
-      }
-    }
-    return switch (_language) {
-      Language.simplifiedChinese => CharsetType.gbk,
-      Language.traditionalChinese => CharsetType.big5Hkscs,
-      _ => CharsetType.gbk,
-    };
-  }
+  CharsetType get charsetType => charsetForLocale(resolveAppLocale());
 
   /// 根据排名获取小说列表
   /// - [ranking] 排行榜种类
@@ -62,16 +43,7 @@ class ApiService extends GetxService {
   /// - [sort] 按什么排序
   /// - [index] 第几页
   Future<Resource> getNovelByCategory({required String category, required String sort, required int index}) {
-    switch (charsetType) {
-      case CharsetType.gbk:
-        {
-          category = GbkCodec().encode(category).map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join().trim();
-        }
-      case CharsetType.big5Hkscs:
-        {
-          category = Big5Codec().encode(category).map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join().trim();
-        }
-    }
+    category = _pct(category);
     String url = "${wenku8Node.node}/modules/article/tags.php?t=$category&v=$sort&page=$index";
     return _client.get(url, charsetType: charsetType);
   }
@@ -170,13 +142,7 @@ class ApiService extends GetxService {
   /// - [title] 标题关键字
   /// - [index] 第几页
   Future<Resource> searchNovelByTitle({required String title, required int index}) {
-    switch (charsetType) {
-      //url编码
-      case CharsetType.gbk:
-        title = GbkEncoder().convert(title).map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join();
-      case CharsetType.big5Hkscs:
-        title = Big5Encoder().convert(title).map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join();
-    }
+    title = _pct(title);
     final String url = "${wenku8Node.node}/modules/article/search.php?searchtype=articlename&searchkey=$title&page=$index";
     return _client.get(url, charsetType: charsetType);
   }
@@ -185,13 +151,7 @@ class ApiService extends GetxService {
   /// - [author] 作者关键字
   /// - [index] 第几页
   Future<Resource> searchNovelByAuthor({required String author, required int index}) {
-    switch (charsetType) {
-      //url编码
-      case CharsetType.gbk:
-        author = GbkEncoder().convert(author).map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join();
-      case CharsetType.big5Hkscs:
-        author = Big5Encoder().convert(author).map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join();
-    }
+    author = _pct(author);
     final String url = "${wenku8Node.node}/modules/article/search.php?searchtype=author&searchkey=$author&page=$index";
     return _client.get(url, charsetType: charsetType);
   }
@@ -216,22 +176,7 @@ class ApiService extends GetxService {
   Future<Resource> sendComment({required String aid, required String title, required String content}) {
     final String url = "${wenku8Node.node}/modules/article/reviews.php?aid=$aid";
 
-    String submit;
-    switch (charsetType) {
-      case CharsetType.gbk:
-        submit = GbkEncoder().convert("发表书评").map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join();
-        title = title.gbkUrlEncodingIfNotAscii();
-        content = content.gbkUrlEncodingIfNotAscii();
-      case CharsetType.big5Hkscs:
-        submit = Big5Encoder().convert("發表書評").map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join();
-        title = title.big5UrlEncodingIfNotAscii();
-        content = content.big5UrlEncodingIfNotAscii();
-    }
-    //加上url编码的空格，即"+"
-    submit = "+$submit+";
-
-    final String params = "ptitle=$title&pcontent=$content&Submit=$submit";
-    return _client.postForm(url, data: params, charsetType: charsetType);
+    return _submitForm(url, {"ptitle": title, "pcontent": content});
   }
 
   /// 发表回复
@@ -241,21 +186,22 @@ class ApiService extends GetxService {
   Future<Resource> sendReply({required String aid, required String rid, required String content}) {
     final String url = "${wenku8Node.node}/modules/article/reviewshow.php?rid=$rid&aid=$aid";
 
-    String submit;
-    switch (charsetType) {
-      case CharsetType.gbk:
-        submit = GbkEncoder().convert("发表书评").map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join();
-        content = content.gbkUrlEncodingIfNotAscii();
-      case CharsetType.big5Hkscs:
-        submit = Big5Encoder().convert("發表書評").map((b) => '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join();
-        content = content.big5UrlEncodingIfNotAscii();
-    }
-    //加上url编码的空格，即"+"
-    submit = "+$submit+";
+    return _submitForm(url, {"pcontent": content});
+  }
 
-    final String params = "pcontent=$content&Submit=$submit";
+  String _pct(String s, {bool asciiPassthrough = false}) {
+    final bytes = switch (charsetType) {
+      CharsetType.gbk => GbkEncoder().convert(s),
+      CharsetType.big5Hkscs => Big5Encoder().convert(s),
+    };
+    return bytes.map((b) => asciiPassthrough && b <= 0x7F ? String.fromCharCode(b) : '%${b.toRadixString(16).padLeft(2, '0').toUpperCase()}').join();
+  }
 
-    return _client.postForm(url, data: params, charsetType: charsetType);
+  Future<Resource> _submitForm(String url, Map<String, String> fields) {
+    final params = fields.entries.map((e) => "${e.key}=${_pct(e.value, asciiPassthrough: true)}").join("&");
+    // 加上 url 编码的空格，即 "+"
+    final submit = _pct(charsetType == CharsetType.gbk ? "发表书评" : "發表書評");
+    return _client.postForm(url, data: "$params&Submit=+$submit+", charsetType: charsetType);
   }
 
   /// 获取小说章节内容
@@ -280,7 +226,7 @@ class _ApiClient {
         ..interceptors.add(CookieManager(_cookieJar));
 
   void initCookie() {
-    final localCookie = LocalStorageService.instance.getCookie();
+    final localCookie = LocalStorageService.instance.cookie.value;
     if (localCookie == null) return;
 
     final cookies = localCookie.split(';').map((e) => e.trim()).where((e) => e.contains('=')).map((e) {
@@ -316,25 +262,23 @@ class _ApiClient {
       Log.d("$url ${charsetType.name}");
       final response = await dio.get(url);
       final raw = await _checkRedirects(response) as Uint8List;
-      late String decodedHtml;
-      switch (charsetType) {
-        case CharsetType.gbk:
-          decodedHtml = GbkDecoder().convert(raw);
-        case CharsetType.big5Hkscs:
-          decodedHtml = Big5Decoder().convert(raw);
-      }
-      return Success(decodedHtml);
+      return Success(_decode(raw, charsetType));
     } catch (e) {
       Log.e(e.toString());
       return Error(e.toString());
     }
   }
 
+  String _decode(Uint8List bytes, CharsetType charsetType) => switch (charsetType) {
+    CharsetType.gbk => GbkDecoder().convert(bytes),
+    CharsetType.big5Hkscs => Big5Decoder().convert(bytes),
+  };
+
   Future<dynamic> _checkRedirects(Response response) async {
     if (response.statusCode != null && response.statusCode! >= 300 && response.statusCode! < 400) {
       final location = response.headers.value('location');
       if (location != null) {
-        final node = LocalStorageService.instance.getWenku8Node();
+        final node = LocalStorageService.instance.wenku8Node.value;
         final redirectedResponse = await dio.get("${node.node}/$location");
         return redirectedResponse.data;
       }
@@ -349,14 +293,7 @@ class _ApiClient {
         data: data,
         options: Options(contentType: Headers.formUrlEncodedContentType),
       );
-      String decodedHtml;
-      switch (charsetType) {
-        case CharsetType.gbk:
-          decodedHtml = GbkCodec().decode(response.data as Uint8List);
-        case CharsetType.big5Hkscs:
-          decodedHtml = Big5Codec().decode(response.data as Uint8List);
-      }
-      return Success(decodedHtml);
+      return Success(_decode(response.data as Uint8List, charsetType));
     } catch (e) {
       Log.e(e.toString());
       return Error(e.toString());

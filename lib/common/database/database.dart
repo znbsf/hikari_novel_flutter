@@ -1,13 +1,17 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:get/get.dart' show Get, Inst;
 import 'package:hikari_novel_flutter/common/migration.dart';
-import 'package:path_provider/path_provider.dart';
+
+import '../app_paths.dart';
 import 'entity.dart';
 
 part "database.g.dart";
 
 @DriftDatabase(tables: [BookshelfEntity, BrowsingHistoryEntity, SearchHistoryEntity, ReadHistoryEntity, NovelDetailEntity])
 class AppDatabase extends _$AppDatabase {
+  static AppDatabase get instance => Get.find<AppDatabase>();
+
   AppDatabase() : super(_openConnection());
 
   @override
@@ -85,5 +89,5 @@ class AppDatabase extends _$AppDatabase {
 
 QueryExecutor _openConnection() => driftDatabase(
   name: "hikari_novel_database",
-  native: const DriftNativeOptions(databaseDirectory: getApplicationSupportDirectory),
+  native: DriftNativeOptions(databaseDirectory: () async => AppPaths.supportDir),
 );

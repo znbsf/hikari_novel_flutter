@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/common/constants.dart';
+import 'package:hikari_novel_flutter/common/database/database.dart';
 import 'package:hikari_novel_flutter/models/page_state.dart';
 import 'package:hikari_novel_flutter/models/reader_direction.dart';
 import 'package:hikari_novel_flutter/pages/novel_detail/controller.dart';
@@ -14,7 +15,6 @@ import 'package:hikari_novel_flutter/pages/novel_detail/widgets/bottom_text_icon
 import 'package:hikari_novel_flutter/pages/novel_detail/widgets/icon_text.dart';
 import 'package:hikari_novel_flutter/router/app_sub_router.dart';
 import 'package:hikari_novel_flutter/router/route_path.dart';
-import 'package:hikari_novel_flutter/service/db_service.dart';
 
 import '../../service/local_storage_service.dart';
 import '../../widgets/state_page.dart';
@@ -351,7 +351,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
 
         //每个卷用一个 Card/ExpansionTile 表示；内部章节使用 ListTile 列表
         return StreamBuilder(
-          stream: DBService.instance.getWatchableReadHistoryByVolume(volumeCids),
+          stream: AppDatabase.instance.getWatchableReadHistoryByVolume(volumeCids),
           builder: (context, volumeSnapshot) => Obx(() {
             final selectedChaps = volume.chapters.where((c) => c.isSelected.value).length;
             final isPartiallySelected = selectedChaps > 0 && selectedChaps < totalChaps;
@@ -406,7 +406,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
 
                   //使用FutureBuilder处理异步的阅读历史数据
                   return StreamBuilder(
-                    stream: DBService.instance.getWatchableReadHistoryByCid(chapter.cid),
+                    stream: AppDatabase.instance.getWatchableReadHistoryByCid(chapter.cid),
                     builder: (context, chapterSnapshot) {
                       return Obx(() {
                         Color chapterTitleColor = Theme.of(context).colorScheme.onSurface; // 默认颜色
@@ -439,9 +439,9 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
                             }
 
                             //获取上次阅读的位置
-                            final history = await DBService.instance.getReadHistoryByCid(chapter.cid);
+                            final history = await AppDatabase.instance.getReadHistoryByCid(chapter.cid);
                             var location = 0; //没有记录或者有不适用的记录则从头开始阅读（即阅读位置为0）
-                            final currDirection = LocalStorageService.instance.getReaderDirection();
+                            final currDirection = LocalStorageService.instance.readerDirection.value;
                             if ((history?.readerMode == kScrollReadMode && currDirection == ReaderDirection.upToDown) ||
                                 (history?.readerMode == kPageReadMode &&
                                     (currDirection == ReaderDirection.leftToRight || currDirection == ReaderDirection.rightToLeft))) {
@@ -471,7 +471,7 @@ class _NovelDetailPageState extends State<NovelDetailPage> {
       () => Offstage(
         offstage: controller.isSelectionMode.value,
         child: StreamBuilder(
-          stream: DBService.instance.getLastestReadHistoryByAid(controller.aid),
+          stream: AppDatabase.instance.getLastestReadHistoryByAid(controller.aid),
           builder: (_, snapshot) {
             if (snapshot.data == null || !controller.isValidReadHistory(snapshot.data)) {
               _isFabVisible = false;

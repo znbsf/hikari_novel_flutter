@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:hikari_novel_flutter/common/database/database.dart';
 import 'package:hikari_novel_flutter/models/page_state.dart';
 import 'package:hikari_novel_flutter/pages/browsing_history/widgets/browsing_history_card.dart';
 import 'package:hikari_novel_flutter/router/app_sub_router.dart';
 import 'package:hikari_novel_flutter/widgets/state_page.dart';
 
-import '../../service/db_service.dart';
 import 'controller.dart';
 
 class BrowsingHistoryPage extends StatelessWidget {
@@ -33,7 +33,7 @@ class BrowsingHistoryPage extends StatelessWidget {
                   return BrowsingHistoryCard(
                     bh: item,
                     onTap: () => AppSubRouter.toNovelDetail(aid: item.aid),
-                    onDelete: () => DBService.instance.deleteBrowsingHistory(item.aid),
+                    onDelete: () => AppDatabase.instance.deleteBrowsingHistory(item.aid),
                   );
                 }).toList(),
               ),

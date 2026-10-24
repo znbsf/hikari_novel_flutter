@@ -6,7 +6,7 @@ import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/common/extension.dart';
 import 'package:hikari_novel_flutter/service/tts_service.dart';
 import 'package:hikari_novel_flutter/widgets/custom_tile.dart';
-import 'package:hikari_novel_flutter/widgets/state_page.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 
 import '../../../models/dual_page_mode.dart';
 import '../../../models/reader_direction.dart';
@@ -199,14 +199,7 @@ class ReaderSettingPage extends StatelessWidget {
 
   void _changeVolumeKeyPageTurning(bool enabled) {
     if (enabled && !Platform.isAndroid) {
-      Get.dialog(
-        AlertDialog(
-          icon: const Icon(Icons.warning_amber_outlined),
-          title: Text("warning".tr),
-          content: Text("volume_key_page_turning_android_only".tr),
-          actions: [TextButton(onPressed: Get.back, child: Text("confirm".tr))],
-        ),
-      );
+      showMessageDialog(title: "warning".tr, content: "volume_key_page_turning_android_only".tr, icon: const Icon(Icons.warning_amber_outlined));
       return;
     }
 

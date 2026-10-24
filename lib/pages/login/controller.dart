@@ -4,17 +4,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get/get.dart';
+import 'package:hikari_novel_flutter/common/constants.dart';
 import 'package:hikari_novel_flutter/main.dart';
 import 'package:hikari_novel_flutter/models/common/wenku8_node.dart';
 import 'package:hikari_novel_flutter/models/page_state.dart';
-import 'package:hikari_novel_flutter/common/constants.dart';
 import 'package:hikari_novel_flutter/router/route_path.dart';
 import 'package:hikari_novel_flutter/service/api_service.dart';
 
 import '../../common/database/database.dart';
 import '../../models/resource.dart';
 import '../../parser/parser.dart';
-import '../../service/db_service.dart';
 import '../../service/local_storage_service.dart';
 
 class LoginController extends GetxController {
@@ -50,14 +49,14 @@ class LoginController extends GetxController {
       if (hasCookie) {
         String cookie = "jieqiUserInfo=${getCookie.firstWhere((cookieItem) => cookieItem.name == "jieqiUserInfo").value};";
         cookie += "jieqiVisitInfo=${getCookie.firstWhere((cookieItem) => cookieItem.name == "jieqiVisitInfo").value}";
-        LocalStorageService.instance.setCookie(cookie);
+        LocalStorageService.instance.cookie.value = cookie;
         ApiService.instance.initCookie();
 
         try {
           await _getUserInfo();
           await _refreshBookshelf();
         } catch (e) {
-          LocalStorageService.instance.setCookie(null); //清空cookie
+          LocalStorageService.instance.cookie.value = null; //清空cookie
           ApiService.instance.deleteCookie();
 
           final controller = inAppWebViewController;
@@ -81,7 +80,7 @@ class LoginController extends GetxController {
     final data = await ApiService.instance.getUserInfo();
     switch (data) {
       case Success():
-        LocalStorageService.instance.setUserInfo(Parser.getUserInfo(data.data));
+        LocalStorageService.instance.userInfo.value = Parser.getUserInfo(data.data);
       case Error():
         {
           throw data.error;
@@ -90,7 +89,7 @@ class LoginController extends GetxController {
   }
 
   Future<void> _refreshBookshelf() async {
-    await DBService.instance.deleteAllBookshelf();
+    await AppDatabase.instance.deleteAllBookshelf();
 
     final futures = Iterable.generate(6, (index) async {
       await _insertAll(index);
@@ -108,7 +107,7 @@ class LoginController extends GetxController {
             final insertData = bookshelf.list.map((e) {
               return BookshelfEntityData(aid: e.aid, bid: e.bid, url: e.url, title: e.title, img: e.img, classId: bookshelf.classId.toString());
             });
-            await DBService.instance.insertAllBookshelf(insertData);
+            await AppDatabase.instance.insertAllBookshelf(insertData);
           }
         }
       case Error():

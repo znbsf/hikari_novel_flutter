@@ -6,13 +6,13 @@ import 'package:hikari_novel_flutter/router/route_path.dart';
 import '../../service/local_storage_service.dart';
 
 class MyController extends GetxController {
-  Rxn<UserInfo> userInfo = Rxn(LocalStorageService.instance.getUserInfo());
+  Rxn<UserInfo> userInfo = Rxn(LocalStorageService.instance.userInfo.value);
 
   final usernameController = TextEditingController();
   final passwordController = TextEditingController();
 
   void logout() {
-    LocalStorageService.instance.setCookie(null);
+    LocalStorageService.instance.cookie.value = null;
     Get.offAndToNamed(RoutePath.welcome);
   }
 }

@@ -1,22 +1,29 @@
 import 'package:easy_refresh/easy_refresh.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:hikari_novel_flutter/widgets/state_page.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 
 import '../models/page_state.dart';
 import '../models/resource.dart';
 import '../parser/parser.dart';
 
-abstract class BaseSelectListPageController<T> extends GetxController {
-  final EasyRefreshController easyRefreshController = EasyRefreshController();
+abstract class PagedListController<T> extends GetxController {
+  PagedListController({PageState initialState = PageState.loading, this.autoLoad = true}) : pageState = Rx(initialState);
 
   /// ###### 页面初始状态
-  Rx<PageState> pageState = Rx(PageState.pleaseSelect);
+  final Rx<PageState> pageState;
+  final bool autoLoad;
   String errorMsg = "";
 
   int _maxNum = 1;
   int _index = 0;
   final RxList<T> data = RxList();
+
+  @override
+  void onReady() {
+    super.onReady();
+    if (autoLoad) getPage(false);
+  }
 
   Future<Resource> getData(int index);
 
@@ -28,18 +35,15 @@ abstract class BaseSelectListPageController<T> extends GetxController {
       data.clear();
       _index = 0;
     }
-    if (_index >= _maxNum) {
-      return IndicatorResult.noMore;
-    }
+    if (_index >= _maxNum) return IndicatorResult.noMore;
+
     _index += 1;
     final result = await getData(_index);
 
     switch (result) {
       case Success():
         {
-          if (!loadMore) {
-            _maxNum = Parser.getMaxNum(result.data);
-          }
+          if (!loadMore) _maxNum = Parser.getMaxNum(result.data);
           data.addAll(getParser(result.data));
 
           pageState.value = PageState.success;

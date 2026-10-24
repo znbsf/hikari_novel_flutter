@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:enough_convert/enough_convert.dart';
 import 'package:get/get.dart' hide Response;
+import 'package:hikari_novel_flutter/common/app_paths.dart';
 import 'package:hikari_novel_flutter/service/api_service.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../common/log.dart';
 import '../models/common/charset_type.dart';
@@ -73,12 +74,11 @@ class ChapterDownloaderService extends GetxService {
 
     try {
       // 获取存储目录
-      final dir = await getApplicationSupportDirectory();
-      final cacheDir = Directory("${dir.path}/cached_chapter");
+      final cacheDir = AppPaths.cachedChapterDir;
       if (!(await cacheDir.exists())) {
         await cacheDir.create(recursive: true);
       }
-      final savePath = "${cacheDir.path}/${aid}_$cid.txt";
+      final savePath = AppPaths.cachedChapterFile(aid, cid).path;
 
       final charset = switch (ApiService.instance.charsetType) {
         CharsetType.gbk => "gbk",

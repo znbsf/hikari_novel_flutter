@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:hikari_novel_flutter/models/page_state.dart';
 import 'package:hikari_novel_flutter/pages/comment/controller.dart';
 import 'package:hikari_novel_flutter/pages/comment/widgets/comment_card.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 
 import '../../widgets/state_page.dart';
 

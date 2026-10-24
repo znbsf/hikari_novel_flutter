@@ -9,11 +9,12 @@ import 'package:hikari_novel_flutter/pages/reader/widgets/custom_slider.dart';
 import 'package:hikari_novel_flutter/pages/reader/widgets/horizontal_read_page.dart';
 import 'package:hikari_novel_flutter/pages/reader/widgets/reader_background.dart';
 import 'package:hikari_novel_flutter/pages/reader/widgets/reader_setting.dart';
+import 'package:hikari_novel_flutter/pages/reader/widgets/tts_floating_controller.dart';
 import 'package:hikari_novel_flutter/pages/reader/widgets/vertical_read_page.dart';
+import 'package:hikari_novel_flutter/service/tts_service.dart';
+import 'package:hikari_novel_flutter/widgets/dialogs.dart';
 import 'package:hikari_novel_flutter/widgets/state_page.dart';
 import 'package:intl/intl.dart';
-import 'package:hikari_novel_flutter/service/tts_service.dart';
-import 'package:hikari_novel_flutter/pages/reader/widgets/tts_floating_controller.dart';
 
 import '../../common/constants.dart';
 import '../../models/page_state.dart';

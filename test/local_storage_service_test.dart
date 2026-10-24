@@ -73,37 +73,37 @@ void main() {
   checkPreference<String?>(
     'loginInfo',
     'cookie',
-    (s) => s.getCookie(),
-    (s, value) => s.setCookie(value),
+    (s) => s.cookie.value,
+    (s, value) => s.cookie.value = value,
     null,
     'session=test-cookie',
     'session=test-cookie',
     clearToNull: true,
   );
 
-  checkPreference<bool>('setting', 'isAutoCheckUpdate', (s) => s.getIsAutoCheckUpdate(), (s, value) => s.setIsAutoCheckUpdate(value), true, false, false);
+  checkPreference<bool>('setting', 'isAutoCheckUpdate', (s) => s.isAutoCheckUpdate.value, (s, value) => s.isAutoCheckUpdate.value = value, true, false, false);
 
-  checkPreference<ThemeMode>('setting', 'themeMode', (s) => s.getThemeMode(), (s, value) => s.setThemeMode(value), ThemeMode.system, ThemeMode.dark, 2);
+  checkPreference<ThemeMode>('setting', 'themeMode', (s) => s.themeMode.value, (s, value) => s.themeMode.value = value, ThemeMode.system, ThemeMode.dark, 2);
 
   checkPreference<Color>(
     'setting',
     'customColor',
-    (s) => s.getCustomColor(),
-    (s, value) => s.setCustomColor(value),
+    (s) => s.customColor.value,
+    (s, value) => s.customColor.value = value,
     const Color(0xFF2196F3),
     const Color(0xFF123456),
     0xFF123456,
   );
 
-  checkPreference<bool>('setting', 'isDynamicColor', (s) => s.getIsDynamicColor(), (s, value) => s.setIsDynamicColor(value), true, false, false);
+  checkPreference<bool>('setting', 'isDynamicColor', (s) => s.isDynamicColor.value, (s, value) => s.isDynamicColor.value = value, true, false, false);
 
-  checkPreference<bool>('setting', 'isRelativeTime', (s) => s.getIsRelativeTime(), (s, value) => s.setIsRelativeTime(value), false, true, true);
+  checkPreference<bool>('setting', 'isRelativeTime', (s) => s.isRelativeTime.value, (s, value) => s.isRelativeTime.value = value, false, true, true);
 
   checkPreference<Language>(
     'setting',
     'language',
-    (s) => s.getLanguage(),
-    (s, value) => s.setLanguage(value),
+    (s) => s.language.value,
+    (s, value) => s.language.value = value,
     Language.followSystem,
     Language.traditionalChinese,
     1,
@@ -112,8 +112,8 @@ void main() {
   checkPreference<Wenku8Node>(
     'setting',
     'wenku8Node',
-    (s) => s.getWenku8Node(),
-    (s, value) => s.setWenku8Node(value),
+    (s) => s.wenku8Node.value,
+    (s, value) => s.wenku8Node.value = value,
     Wenku8Node.wwwWenku8Cc,
     Wenku8Node.wwwWenku8Net,
     0,
@@ -122,32 +122,40 @@ void main() {
   checkPreference<ReaderDirection>(
     'reader',
     'readerDirection',
-    (s) => s.getReaderDirection(),
-    (s, value) => s.setReaderDirection(value),
+    (s) => s.readerDirection.value,
+    (s, value) => s.readerDirection.value = value,
     ReaderDirection.upToDown,
     ReaderDirection.rightToLeft,
     1,
   );
 
-  checkPreference<double>('reader', 'readerFontSize', (s) => s.getReaderFontSize(), (s, value) => s.setReaderFontSize(value), 16.0, 22.0, 22.0);
+  checkPreference<double>('reader', 'readerFontSize', (s) => s.readerFontSize.value, (s, value) => s.readerFontSize.value = value, 16.0, 22.0, 22.0);
 
-  checkPreference<double>('reader', 'readerLineSpacing', (s) => s.getReaderLineSpacing(), (s, value) => s.setReaderLineSpacing(value), 1.5, 1.8, 1.8);
+  checkPreference<double>('reader', 'readerLineSpacing', (s) => s.readerLineSpacing.value, (s, value) => s.readerLineSpacing.value = value, 1.5, 1.8, 1.8);
 
-  checkPreference<bool>('reader', 'readerWakeLock', (s) => s.getReaderWakeLock(), (s, value) => s.setReaderWakeLock(value), false, true, true);
+  checkPreference<bool>('reader', 'readerWakeLock', (s) => s.readerWakeLock.value, (s, value) => s.readerWakeLock.value = value, false, true, true);
 
-  checkPreference<double>('reader', 'readerLeftMargin', (s) => s.getReaderLeftMargin(), (s, value) => s.setReaderLeftMargin(value), 20.0, 12.0, 12.0);
+  checkPreference<double>('reader', 'readerLeftMargin', (s) => s.readerLeftMargin.value, (s, value) => s.readerLeftMargin.value = value, 20.0, 12.0, 12.0);
 
-  checkPreference<double>('reader', 'readerTopMargin', (s) => s.getReaderTopMargin(), (s, value) => s.setReaderTopMargin(value), 20.0, 13.0, 13.0);
+  checkPreference<double>('reader', 'readerTopMargin', (s) => s.readerTopMargin.value, (s, value) => s.readerTopMargin.value = value, 20.0, 13.0, 13.0);
 
-  checkPreference<double>('reader', 'readerRightMargin', (s) => s.getReaderRightMargin(), (s, value) => s.setReaderRightMargin(value), 20.0, 14.0, 14.0);
+  checkPreference<double>('reader', 'readerRightMargin', (s) => s.readerRightMargin.value, (s, value) => s.readerRightMargin.value = value, 20.0, 14.0, 14.0);
 
-  checkPreference<double>('reader', 'readerBottomMargin', (s) => s.getReaderBottomMargin(), (s, value) => s.setReaderBottomMargin(value), 20.0, 15.0, 15.0);
+  checkPreference<double>(
+    'reader',
+    'readerBottomMargin',
+    (s) => s.readerBottomMargin.value,
+    (s, value) => s.readerBottomMargin.value = value,
+    20.0,
+    15.0,
+    15.0,
+  );
 
   checkPreference<DualPageMode>(
     'reader',
     'readerDualPageMode',
-    (s) => s.getReaderDualPageMode(),
-    (s, value) => s.setReaderDualPageMode(value),
+    (s) => s.readerDualPageMode.value,
+    (s, value) => s.readerDualPageMode.value = value,
     DualPageMode.auto,
     DualPageMode.disabled,
     2,
@@ -156,22 +164,30 @@ void main() {
   checkPreference<double>(
     'reader',
     'readerDualPageSpacing',
-    (s) => s.getReaderDualPageSpacing(),
-    (s, value) => s.setReaderDualPageSpacing(value),
+    (s) => s.readerDualPageSpacing.value,
+    (s, value) => s.readerDualPageSpacing.value = value,
     20.0,
     30.0,
     30.0,
   );
 
-  checkPreference<bool>('reader', 'readerImmersionMode', (s) => s.getReaderImmersionMode(), (s, value) => s.setReaderImmersionMode(value), false, true, true);
+  checkPreference<bool>(
+    'reader',
+    'readerImmersionMode',
+    (s) => s.readerImmersionMode.value,
+    (s, value) => s.readerImmersionMode.value = value,
+    false,
+    true,
+    true,
+  );
 
-  checkPreference<bool>('reader', 'readerStatusBar', (s) => s.getReaderStatusBar(), (s, value) => s.setReaderStatusBar(value), true, false, false);
+  checkPreference<bool>('reader', 'readerStatusBar', (s) => s.readerStatusBar.value, (s, value) => s.readerStatusBar.value = value, true, false, false);
 
   checkPreference<String?>(
     'reader',
     'readerTextFamily',
-    (s) => s.getReaderTextFamily(),
-    (s, value) => s.setReaderTextFamily(value),
+    (s) => s.readerTextFamily.value,
+    (s, value) => s.readerTextFamily.value = value,
     null,
     '测试字体',
     '测试字体',
@@ -181,8 +197,8 @@ void main() {
   checkPreference<String?>(
     'reader',
     'readerTextStyleFilePath',
-    (s) => s.getReaderTextStyleFilePath(),
-    (s, value) => s.setReaderTextStyleFilePath(value),
+    (s) => s.readerTextStyleFilePath.value,
+    (s, value) => s.readerTextStyleFilePath.value = value,
     null,
     'font/test.ttf',
     'font/test.ttf',
@@ -192,8 +208,8 @@ void main() {
   checkPreference<bool>(
     'reader',
     'readerPageTurningAnimation',
-    (s) => s.getReaderPageTurningAnimation(),
-    (s, value) => s.setReaderPageTurningAnimation(value),
+    (s) => s.readerPageTurningAnimation.value,
+    (s, value) => s.readerPageTurningAnimation.value = value,
     true,
     false,
     false,
@@ -202,8 +218,8 @@ void main() {
   checkPreference<bool>(
     'reader',
     'readerVolumeKeyPageTurning',
-    (s) => s.getReaderVolumeKeyPageTurning(),
-    (s, value) => s.setReaderVolumeKeyPageTurning(value),
+    (s) => s.readerVolumeKeyPageTurning.value,
+    (s, value) => s.readerVolumeKeyPageTurning.value = value,
     false,
     true,
     true,
@@ -212,8 +228,8 @@ void main() {
   checkPreference<Color?>(
     'reader',
     'readerDayBgColor',
-    (s) => s.getReaderDayBgColor(),
-    (s, value) => s.setReaderDayBgColor(value),
+    (s) => s.readerDayBgColor.value,
+    (s, value) => s.readerDayBgColor.value = value,
     null,
     const Color(0xFF123456),
     0xFF123456,
@@ -223,8 +239,8 @@ void main() {
   checkPreference<Color?>(
     'reader',
     'readerDayTextColor',
-    (s) => s.getReaderDayTextColor(),
-    (s, value) => s.setReaderDayTextColor(value),
+    (s) => s.readerDayTextColor.value,
+    (s, value) => s.readerDayTextColor.value = value,
     null,
     const Color(0xFF234567),
     0xFF234567,
@@ -234,8 +250,8 @@ void main() {
   checkPreference<Color?>(
     'reader',
     'readerNightBgColor',
-    (s) => s.getReaderNightBgColor(),
-    (s, value) => s.setReaderNightBgColor(value),
+    (s) => s.readerNightBgColor.value,
+    (s, value) => s.readerNightBgColor.value = value,
     null,
     const Color(0xFF345678),
     0xFF345678,
@@ -245,8 +261,8 @@ void main() {
   checkPreference<Color?>(
     'reader',
     'readerNightTextColor',
-    (s) => s.getReaderNightTextColor(),
-    (s, value) => s.setReaderNightTextColor(value),
+    (s) => s.readerNightTextColor.value,
+    (s, value) => s.readerNightTextColor.value = value,
     null,
     const Color(0xFF456789),
     0xFF456789,
@@ -256,8 +272,8 @@ void main() {
   checkPreference<String?>(
     'reader',
     'readerDayBgImage',
-    (s) => s.getReaderDayBgImage(),
-    (s, value) => s.setReaderDayBgImage(value),
+    (s) => s.readerDayBgImage.value,
+    (s, value) => s.readerDayBgImage.value = value,
     null,
     'bgImage/day.png',
     'bgImage/day.png',
@@ -267,21 +283,21 @@ void main() {
   checkPreference<String?>(
     'reader',
     'readerNightBgImage',
-    (s) => s.getReaderNightBgImage(),
-    (s, value) => s.setReaderNightBgImage(value),
+    (s) => s.readerNightBgImage.value,
+    (s, value) => s.readerNightBgImage.value = value,
     null,
     'bgImage/night.png',
     'bgImage/night.png',
     clearToNull: true,
   );
 
-  checkPreference<bool>('reader', 'readerTtsEnabled', (s) => s.getReaderTtsEnabled(), (s, value) => s.setReaderTtsEnabled(value), false, true, true);
+  checkPreference<bool>('reader', 'readerTtsEnabled', (s) => s.readerTtsEnabled.value, (s, value) => s.readerTtsEnabled.value = value, false, true, true);
 
   checkPreference<String?>(
     'reader',
     'readerTtsEngine',
-    (s) => s.getReaderTtsEngine(),
-    (s, value) => s.setReaderTtsEngine(value),
+    (s) => s.readerTtsEngine.value,
+    (s, value) => s.readerTtsEngine.value = value,
     null,
     'test.tts.engine',
     'test.tts.engine',
@@ -291,31 +307,31 @@ void main() {
   checkPreference<Map<String, String>?>(
     'reader',
     'readerTtsVoice',
-    (s) => s.getReaderTtsVoice(),
-    (s, value) => s.setReaderTtsVoice(value),
+    (s) => s.readerTtsVoice.value,
+    (s, value) => s.readerTtsVoice.value = value,
     null,
     {'name': '测试声音', 'locale': 'zh-CN'},
     {'name': '测试声音', 'locale': 'zh-CN'},
     clearToNull: true,
   );
 
-  checkPreference<double>('reader', 'readerTtsRate', (s) => s.getReaderTtsRate(), (s, value) => s.setReaderTtsRate(value), 0.5, 0.8, 0.8);
+  checkPreference<double>('reader', 'readerTtsRate', (s) => s.readerTtsRate.value, (s, value) => s.readerTtsRate.value = value, 0.5, 0.8, 0.8);
 
-  checkPreference<double>('reader', 'readerTtsPitch', (s) => s.getReaderTtsPitch(), (s, value) => s.setReaderTtsPitch(value), 1.0, 1.2, 1.2);
+  checkPreference<double>('reader', 'readerTtsPitch', (s) => s.readerTtsPitch.value, (s, value) => s.readerTtsPitch.value = value, 1.0, 1.2, 1.2);
 
-  checkPreference<double>('reader', 'readerTtsVolume', (s) => s.getReaderTtsVolume(), (s, value) => s.setReaderTtsVolume(value), 1.0, 0.7, 0.7);
+  checkPreference<double>('reader', 'readerTtsVolume', (s) => s.readerTtsVolume.value, (s, value) => s.readerTtsVolume.value = value, 1.0, 0.7, 0.7);
 
-  checkPreference<bool>('setting', 'devModeEnabled', (s) => s.getDevModeEnabled(), (s, value) => s.setDevModeEnabled(value), false, true, true);
+  checkPreference<bool>('setting', 'devModeEnabled', (s) => s.devModeEnabled.value, (s, value) => s.devModeEnabled.value = value, false, true, true);
 
-  checkPreference<int>('reader', 'readerParaIndent', (s) => s.getReaderParaIndent(), (s, value) => s.setReaderParaIndent(value), 1, 2, 2);
+  checkPreference<int>('reader', 'readerParaIndent', (s) => s.readerParaIndent.value, (s, value) => s.readerParaIndent.value = value, 1, 2, 2);
 
-  checkPreference<int>('reader', 'readerParaSpacing', (s) => s.getReaderParaSpacing(), (s, value) => s.setReaderParaSpacing(value), 25, 18, 18);
+  checkPreference<int>('reader', 'readerParaSpacing', (s) => s.readerParaSpacing.value, (s, value) => s.readerParaSpacing.value = value, 25, 18, 18);
 
   checkPreference<int>(
     'reader',
     'readerBottomStatusBarHorizontalSpacing',
-    (s) => s.getReaderBottomStatusBarHorizontalSpacing(),
-    (s, value) => s.setReaderBottomStatusBarHorizontalSpacing(value),
+    (s) => s.readerBottomStatusBarHorizontalSpacing.value,
+    (s, value) => s.readerBottomStatusBarHorizontalSpacing.value = value,
     25,
     32,
     32,
@@ -323,7 +339,7 @@ void main() {
 
   test('setting/user_info 默认值、adapter 和读写往返', () async {
     expect(Hive.box('setting').containsKey('user_info'), false);
-    expect(storage.getUserInfo(), null);
+    expect(storage.userInfo.value, null);
     final user = UserInfo(
       avatar: 'avatar.png',
       uid: '42',
@@ -350,13 +366,23 @@ void main() {
         .having((u) => u.maxBookshelfNum, 'maxBookshelfNum', '4')
         .having((u) => u.maxRecommendNum, 'maxRecommendNum', '5');
 
-    storage.setUserInfo(user);
-    expect(storage.getUserInfo(), matcher);
+    storage.userInfo.value = user;
+    expect(storage.userInfo.value, matcher);
     expect(Hive.box('setting').containsKey('user_info'), true);
     expect(Hive.box('setting').get('user_info'), matcher);
     await Hive.box('setting').flush();
     await reopen();
-    expect(storage.getUserInfo(), matcher);
+    expect(storage.userInfo.value, matcher);
     expect(Hive.box('setting').get('user_info'), matcher);
+  });
+
+  test('reader/readerTtsVoice 非 Map 旧值仍返回 null', () async {
+    await Hive.box('reader').put('readerTtsVoice', 'invalid');
+    expect(storage.readerTtsVoice.value, null);
+  });
+
+  test('reader/readerTtsVoice 旧 Map 的键和值转换为字符串', () async {
+    await Hive.box('reader').put('readerTtsVoice', {1: 2, 'locale': 'zh-CN'});
+    expect(storage.readerTtsVoice.value, {'1': '2', 'locale': 'zh-CN'});
   });
 }

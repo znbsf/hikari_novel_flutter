@@ -16,7 +16,7 @@ class UserInfoController extends GetxController {
   void onReady() {
     super.onReady();
 
-    userInfo.value = LocalStorageService.instance.getUserInfo();
+    userInfo.value = LocalStorageService.instance.userInfo.value;
     pageState.value = PageState.success;
   }
 
@@ -26,7 +26,7 @@ class UserInfoController extends GetxController {
       case Success():
         {
           userInfo.value = Parser.getUserInfo(data.data);
-          LocalStorageService.instance.setUserInfo(userInfo.value!);
+          LocalStorageService.instance.userInfo.value = userInfo.value!;
           pageState.value = PageState.success;
         }
       case Error():

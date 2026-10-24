@@ -1,10 +1,10 @@
 import 'package:easy_refresh/easy_refresh.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:hikari_novel_flutter/common/database/database.dart';
 import 'package:hikari_novel_flutter/models/page_state.dart';
 import 'package:responsive_grid_list/responsive_grid_list.dart';
 
-import '../../service/db_service.dart';
 import '../../widgets/novel_cover_card.dart';
 import 'controller.dart' as c;
 import 'widgets/search_loading_view.dart';
@@ -112,7 +112,7 @@ class SearchPage extends StatelessWidget {
                               IconButton(
                                 icon: Icon(Icons.delete_outline),
                                 tooltip: "clear_all_history".tr,
-                                onPressed: () => DBService.instance.deleteAllSearchHistory(),
+                                onPressed: () => AppDatabase.instance.deleteAllSearchHistory(),
                               ),
                             ],
                           ),

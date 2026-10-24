@@ -36,7 +36,7 @@ void main() async {
   Get.put(ApiService());
   Get.put(ChapterDownloaderService());
   Get.put(AppDatabase());
-  await Get.put(TtsService()).init();
+  Get.put(TtsService()).init();
 
   if (_isWindows) {
     final availableVersion = await WebViewEnvironment.getAvailableVersion();
@@ -53,6 +53,7 @@ void main() async {
   FlutterNativeSplash.remove();
 
   runApp(const App());
+  TtsService.instance.ensureReady(); //首屏之后再预热 TTS 引擎
 }
 
 class App extends StatelessWidget {

@@ -16,6 +16,7 @@ class TtsService extends GetxService {
   static TtsService get instance => Get.find<TtsService>();
 
   final FlutterTts _tts = FlutterTts();
+  Future<void>? _ready;
 
   final enabled = false.obs;
   final engine = RxnString();
@@ -47,11 +48,7 @@ class TtsService extends GetxService {
 
   static const List<String> _preferredLocales = <String>['zh-CN', 'zh-TW', 'zh-HK', 'en-US'];
 
-  Future<void> init() async {
-    try {
-      await _tts.awaitSpeakCompletion(true);
-    } catch (_) {}
-
+  void init() {
     _tts.setStartHandler(() {
       isPlaying.value = true;
       isPaused.value = false;
@@ -59,16 +56,7 @@ class TtsService extends GetxService {
     _tts.setCompletionHandler(() {
       _onChunkCompleted();
     });
-    _tts.setCancelHandler(() {
-      if (_pauseRequested) {
-        _pauseRequested = false;
-        isPlaying.value = false;
-        isPaused.value = true;
-        return;
-      }
-      _stopRequested = false;
-      _endSession();
-    });
+    _tts.setCancelHandler(_onCancelledOrError);
     _tts.setPauseHandler(() {
       _pauseRequested = false;
       isPlaying.value = false;
@@ -80,14 +68,7 @@ class TtsService extends GetxService {
       isPaused.value = false;
     });
     _tts.setErrorHandler((_) {
-      if (_pauseRequested) {
-        _pauseRequested = false;
-        isPlaying.value = false;
-        isPaused.value = true;
-        return;
-      }
-      _stopRequested = false;
-      _endSession();
+      _onCancelledOrError();
     });
 
     enabled.value = LocalStorageService.instance.readerTtsEnabled.value;
@@ -96,6 +77,18 @@ class TtsService extends GetxService {
     rate.value = LocalStorageService.instance.readerTtsRate.value;
     pitch.value = LocalStorageService.instance.readerTtsPitch.value;
     volume.value = LocalStorageService.instance.readerTtsVolume.value;
+  }
+
+  /// 耗时的引擎/语音初始化只执行一次；失败时记录日志并允许下次重试
+  Future<void> ensureReady() => _ready ??= _warmUp().catchError((Object e) {
+    Log.e("TTS 初始化失败: $e");
+    _ready = null;
+  });
+
+  Future<void> _warmUp() async {
+    try {
+      await _tts.awaitSpeakCompletion(true);
+    } catch (_) {}
 
     await _tts.setSpeechRate(rate.value);
     await _tts.setPitch(pitch.value);
@@ -123,6 +116,17 @@ class TtsService extends GetxService {
       voice.value = null;
       LocalStorageService.instance.readerTtsVoice.value = null;
     }
+  }
+
+  void _onCancelledOrError() {
+    if (_pauseRequested) {
+      _pauseRequested = false;
+      isPlaying.value = false;
+      isPaused.value = true;
+      return;
+    }
+    _stopRequested = false;
+    _endSession();
   }
 
   String displayEngineName(String enginePackage) {
@@ -385,6 +389,7 @@ class TtsService extends GetxService {
   }
 
   Future<void> _prepareForSpeak() async {
+    await ensureReady();
     try {
       await _tts.setSpeechRate(rate.value);
       await _tts.setPitch(pitch.value);

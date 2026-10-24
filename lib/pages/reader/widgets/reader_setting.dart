@@ -334,6 +334,7 @@ class ReaderSettingPage extends StatelessWidget {
                     leading: const Icon(Icons.settings_outlined),
                     trailing: const Icon(Icons.keyboard_arrow_down),
                     onTap: () async {
+                      await tts.ensureReady();
                       await tts.refreshEngines();
                       showNormalListSheet(
                         Get.context!,
@@ -357,6 +358,7 @@ class ReaderSettingPage extends StatelessWidget {
                     leading: const Icon(Icons.surround_sound_outlined),
                     trailing: const Icon(Icons.keyboard_arrow_down),
                     onTap: () async {
+                      await tts.ensureReady();
                       await tts.refreshVoices();
                       showNormalListSheet(
                         Get.context!,

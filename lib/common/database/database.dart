@@ -14,6 +14,8 @@ class AppDatabase extends _$AppDatabase {
 
   AppDatabase() : super(_openConnection());
 
+  AppDatabase.forTesting(super.executor);
+
   @override
   int get schemaVersion => 4; //版本号
 
@@ -31,6 +33,16 @@ class AppDatabase extends _$AppDatabase {
   );
 
   Future<void> insertAllBookshelf(Iterable<BookshelfEntityData> data) => batch((b) => b.insertAll(bookshelfEntity, data));
+
+  /// Replace a validated remote snapshot atomically, including valid empty shelves.
+  Future<void> replaceBookshelf(Iterable<BookshelfEntityData> data, {String? classId}) => transaction(() async {
+    if (classId == null) {
+      await deleteAllBookshelf();
+    } else {
+      await (delete(bookshelfEntity)..where((i) => i.classId.equals(classId))).go();
+    }
+    await insertAllBookshelf(data);
+  });
 
   Future<void> deleteAllBookshelf() => delete(bookshelfEntity).go();
 

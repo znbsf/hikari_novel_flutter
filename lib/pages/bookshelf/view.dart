@@ -85,9 +85,10 @@ class BookshelfPage extends StatelessWidget {
       actions: [
         IconButton(
           onPressed: () async {
-            showSnackBar(message: "refresh_bookshelf_tip".tr, context: Get.context!);
+            showSnackBar(message: "refresh_bookshelf_tip".tr, context: context);
             final string = await controller.refreshBookshelf();
-            showSnackBar(message: string, context: Get.context!);
+            if (!context.mounted || controller.isClosed) return;
+            showSnackBar(message: string, context: context);
           },
           icon: const Icon(Icons.sync),
         ),

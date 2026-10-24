@@ -1,3 +1,4 @@
+import '../../service/session_service.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -273,27 +274,40 @@ class NovelDetailController extends GetxController with GetSingleTickerProviderS
   }
 
   bool _isAdding = false; //防抖
-  void addToBookshelf() async {
+  Future<void> addToBookshelf() async {
     if (_isAdding) return;
     _isAdding = true;
-    final result = await ApiService.instance.addNovel(aid: aid);
-    switch (result) {
-      case Success():
-        {
+    final session = SessionCoordinator.instance;
+    final generation = session.generation;
+    bool current() => !isClosed && session.isCurrent(generation);
+    try {
+      if (!current()) return;
+      final result = await ApiService.instance.addNovel(aid: aid);
+      if (!current()) return;
+      switch (result) {
+        case Success():
           if (Parser.isError(result.data)) {
             showMessageDialog(title: "warning".tr, content: "add_to_bookshelf_failed_tip".tr, icon: const Icon(Icons.warning_amber_outlined));
             isInBookshelf.value = false;
           } else {
-            await bookshelfController.refreshDefaultBookshelf();
+            // The remote addition succeeded even if synchronizing its local mirror fails.
             isInBookshelf.value = true;
+            try {
+              await bookshelfController.refreshDefaultBookshelf();
+            } catch (_) {
+              if (!current()) return;
+              showErrorDialog("update_failed".tr, [TextButton(onPressed: Get.back, child: Text("confirm".tr))]);
+            }
           }
-        }
-      case Error():
-        {
+        case Error():
           showErrorDialog(result.error.toString(), [TextButton(onPressed: Get.back, child: Text("confirm".tr))]);
-        }
+      }
+    } catch (error) {
+      if (!current()) return;
+      showErrorDialog(error.toString(), [TextButton(onPressed: Get.back, child: Text("confirm".tr))]);
+    } finally {
+      _isAdding = false;
     }
-    _isAdding = false;
   }
 
   bool _isRemoving = false; //防抖

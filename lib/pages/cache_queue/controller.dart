@@ -5,155 +5,127 @@ import '../../models/chapter_cache_task.dart';
 import '../../service/chapter_downloader_service.dart';
 
 class CacheQueueController extends GetxService {
-  final downloader = Get.find<ChapterDownloaderService>();
+  CacheQueueController({this.concurrency = 1, ChapterDownloaderService? downloader}) : downloader = downloader ?? Get.find<ChapterDownloaderService>() {
+    if (concurrency < 1) throw ArgumentError.value(concurrency, 'concurrency');
+  }
 
-  //可观察队列
+  final ChapterDownloaderService downloader;
   final RxList<ChapterCacheTask> tasks = <ChapterCacheTask>[].obs;
-
-  //控制并发数量
   final int concurrency;
+  final Map<String, _QueueRun> _running = {};
+  bool _closed = false;
 
-  //内部状态
-  bool _isProcessing = false;
-  final Map<String, Future> _running = {}; // taskId -> future
-
-  CacheQueueController({this.concurrency = 1});
-
-  //添加任务，会自动去重（基于uuid）
-  Future<void> addTask(ChapterCacheTask t) async {
-    final idx = tasks.indexWhere((x) => x.uuid == t.uuid);
-    if (idx != -1) {
-      //已存在, 更新一些字段
-      final old = tasks[idx];
-      old.title = t.title;
-      tasks[idx] = old;
+  Future<void> addTask(ChapterCacheTask task) async {
+    if (_closed) return;
+    final index = tasks.indexWhere((existing) => existing.uuid == task.uuid);
+    if (index == -1) {
+      tasks.add(task);
     } else {
-      tasks.add(t);
+      tasks[index].title = task.title;
+      tasks.refresh();
     }
-    startProcessing();
+    _pump();
   }
 
   Future<void> removeTask(String uuid) async {
-    // 如果正在下载，先取消
-    downloader.cancel(uuid);
-    tasks.removeWhere((t) => t.uuid == uuid);
+    _cancelRun(uuid);
+    tasks.removeWhere((task) => task.uuid == uuid);
   }
 
-  Future<void> startProcessing() async {
-    if (_isProcessing) return;
-    _isProcessing = true;
-    _processLoop();
-  }
+  Future<void> startProcessing() async => _pump();
 
-  Future<void> _processLoop() async {
-    while (_isProcessing) {
-      // 启动新的任务直到并发限制
-      final runningCount = _running.length;
-      if (runningCount >= concurrency) {
-        // 等待最先完成的任务
-        await Future.delayed(Duration(milliseconds: 300));
-        continue;
-      }
-
-      // 找到下一个 pending 任务
-      final next = tasks.where((t) => t.status == CacheStatus.pending).toList();
-      if (next.isEmpty) {
-        // 没有更多任务，停止循环
-        _isProcessing = false;
-        break;
-      }
-
-      final task = next.first;
-      // 启动下载
+  // Reserve a slot before starting any async work. A canceled run retains its
+  // slot until the downloader has released its files and cancellation token.
+  void _pump() {
+    if (_closed) return;
+    for (final task in tasks.toList()) {
+      if (_running.length >= concurrency) break;
+      if (task.status != CacheStatus.pending || _running.containsKey(task.uuid)) continue;
+      final run = _QueueRun(task);
+      _running[task.uuid] = run;
       task.status = CacheStatus.downloading;
-      task.progress = 0.0;
-      // 确保 UI 更新
+      task.progress = 0;
       tasks.refresh();
-
-      final future = _runTask(task).whenComplete(() {
-        _running.remove(task.uuid);
-      });
-      _running[task.uuid] = future;
-
-      // 小睡一下让 loop 再次评估并发
-      await Future.delayed(Duration(milliseconds: 100));
+      _runTask(run);
     }
   }
 
-  Future<void> _runTask(ChapterCacheTask task) async {
+  bool _accepts(_QueueRun run) => !_closed && run.valid && tasks.contains(run.task) && run.task.status == CacheStatus.downloading;
+
+  Future<void> _runTask(_QueueRun run) async {
+    final task = run.task;
     try {
       await downloader.download(taskId: task.uuid, aid: task.aid, cid: task.cid);
-
-      // task.status = CacheStatus.completed;
-      // task.progress = 1.0;
-
-      tasks.remove(task);
-      tasks.refresh();
-      task.onCompleted?.call(task.cid);
-    } catch (e) {
-      if (e.toString().contains('canceled')) {
-        task.status = CacheStatus.canceled;
-      } else {
-        task.status = CacheStatus.failed;
+      if (_accepts(run)) {
+        tasks.remove(task);
+        task.status = CacheStatus.completed;
+        task.progress = 1;
+        task.onCompleted?.call(task.cid);
       }
-      tasks.refresh();
+    } catch (error) {
+      if (_accepts(run)) {
+        task.status = error.toString().contains('canceled') ? CacheStatus.canceled : CacheStatus.failed;
+        tasks.refresh();
+      }
+    } finally {
+      if (identical(_running[task.uuid], run)) _running.remove(task.uuid);
+      _pump();
     }
+  }
+
+  void _cancelRun(String uuid) {
+    _running[uuid]?.valid = false;
+    downloader.cancel(uuid);
   }
 
   Future<void> pauseTask(String uuid) async {
-    //无法精确暂停，只能取消并把状态标记为paused
-    downloader.cancel(uuid);
-    final idx = tasks.indexWhere((t) => t.uuid == uuid);
-    if (idx != -1) {
-      final t = tasks[idx];
-      t.status = CacheStatus.paused;
-      tasks[idx] = t;
+    _cancelRun(uuid);
+    for (final task in tasks.where((task) => task.uuid == uuid)) {
+      task.status = CacheStatus.paused;
     }
+    tasks.refresh();
   }
 
   Future<void> resumeTask(String uuid) async {
-    final idx = tasks.indexWhere((t) => t.uuid == uuid);
-    if (idx != -1) {
-      final t = tasks[idx];
-      if (t.status == CacheStatus.paused || t.status == CacheStatus.failed || t.status == CacheStatus.canceled) {
-        t.status = CacheStatus.pending;
-        tasks[idx] = t;
-        startProcessing(); // 确保会重新从头开始下载
+    for (final task in tasks.where((task) => task.uuid == uuid)) {
+      if (task.status == CacheStatus.paused || task.status == CacheStatus.failed || task.status == CacheStatus.canceled) {
+        task.status = CacheStatus.pending;
       }
     }
+    tasks.refresh();
+    _pump();
   }
 
   Future<void> cancelTask(String uuid) async {
-    downloader.cancel(uuid);
-    final idx = tasks.indexWhere((t) => t.uuid == uuid);
-    if (idx != -1) {
-      final t = tasks[idx];
-      t.status = CacheStatus.canceled;
-      tasks[idx] = t;
+    _cancelRun(uuid);
+    for (final task in tasks.where((task) => task.uuid == uuid)) {
+      task.status = CacheStatus.canceled;
     }
+    tasks.refresh();
   }
 
   Future<void> startAll() async {
-    for (var t in tasks) {
-      if (t.status != CacheStatus.completed) t.status = CacheStatus.pending;
+    for (final task in tasks) {
+      if (task.status != CacheStatus.completed && task.status != CacheStatus.downloading) task.status = CacheStatus.pending;
     }
     tasks.refresh();
-    startProcessing();
+    _pump();
   }
 
   Future<void> pauseAll() async {
-    _isProcessing = false;
-    //取消 running
-    for (var k in _running.keys) {
-      downloader.cancel(k);
+    for (final uuid in _running.keys.toList()) {
+      _cancelRun(uuid);
     }
-    for (var t in tasks) {
-      if (t.status == CacheStatus.downloading) t.status = CacheStatus.paused;
+    for (final task in tasks) {
+      if (task.status == CacheStatus.downloading || task.status == CacheStatus.pending) task.status = CacheStatus.paused;
     }
     tasks.refresh();
   }
 
   Future<void> clearAll() async {
+    for (final uuid in _running.keys.toList()) {
+      _cancelRun(uuid);
+    }
     tasks.clear();
   }
 
@@ -163,4 +135,19 @@ class CacheQueueController extends GetxService {
     list.insert(newIndex, item);
     tasks.assignAll(list);
   }
+
+  @override
+  void onClose() {
+    _closed = true;
+    for (final uuid in _running.keys.toList()) {
+      _cancelRun(uuid);
+    }
+    super.onClose();
+  }
+}
+
+class _QueueRun {
+  _QueueRun(this.task);
+  final ChapterCacheTask task;
+  bool valid = true;
 }

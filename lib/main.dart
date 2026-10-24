@@ -48,7 +48,7 @@ void main() async {
 
   _init();
   await Jiffy.setLocale(resolveAppLocale().toString());
-  ApiService.instance.initCookie(); //初始化cookie
+  await ApiService.instance.initCookie(); //初始化cookie
 
   FlutterNativeSplash.remove();
 

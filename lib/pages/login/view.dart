@@ -5,7 +5,6 @@ import 'package:hikari_novel_flutter/main.dart';
 import 'package:hikari_novel_flutter/models/page_state.dart';
 import 'package:hikari_novel_flutter/widgets/state_page.dart';
 
-import '../../router/route_path.dart';
 import 'controller.dart';
 
 class LoginPage extends StatelessWidget {
@@ -53,26 +52,30 @@ class LoginPage extends StatelessWidget {
                     ),
                     Expanded(
                       child: SafeArea(
-                        child: InAppWebView(
-                          key: controller.webViewKey,
-                          webViewEnvironment: webViewEnvironment,
-                          initialUrlRequest: URLRequest(url: WebUri(controller.url)),
-                          initialSettings: controller.settings,
-                          onWebViewCreated: (webController) {
-                            controller.inAppWebViewController = webController;
-                          },
-                          onLoadStart: (webController, webUri) {
-                            controller.currentUrl.value = webUri.toString();
-                          },
-                          onLoadStop: (webController, webUri) async {
-                            if (webUri != null) {
-                              controller.saveCookie(webUri);
-                            }
+                        child: controller.ready.value
+                            ? InAppWebView(
+                                key: controller.webViewKey,
+                                webViewEnvironment: webViewEnvironment,
+                                initialUrlRequest: URLRequest(url: WebUri(controller.url)),
+                                initialSettings: controller.settings,
+                                onWebViewCreated: (webController) {
+                                  controller.inAppWebViewController = webController;
+                                },
+                                onLoadStart: (webController, webUri) {
+                                  controller.currentUrl.value = webUri.toString();
+                                },
+                                onLoadStop: (webController, webUri) async {
+                                  if (!controller.canUseWebView || !identical(controller.inAppWebViewController, webController)) return;
+                                  if (webUri != null) {
+                                    await controller.saveCookie(webUri);
+                                  }
 
-                            if (webUri.toString() == controller.url) {
-                              await webController.evaluateJavascript(
-                                //去掉<浏览器进程>选项，防止获取到临时cookie
-                                source: """
+                                  if (!controller.canUseWebView || !identical(controller.inAppWebViewController, webController)) return;
+                                  if (webUri.toString() == controller.url) {
+                                    try {
+                                      await webController.evaluateJavascript(
+                                        //去掉<浏览器进程>选项，防止获取到临时cookie
+                                        source: """
                                   var select = document.querySelector('select[name="usecookie"]');
                                   if (select) {
                                     for (var i = 0; i < select.options.length; i++) {
@@ -83,14 +86,18 @@ class LoginPage extends StatelessWidget {
                                     }
                                   }
                                 """,
-                              );
-                            }
-                          },
-                          onProgressChanged: (webController, progress) {
-                            controller.showLoading.value = progress != 100;
-                            controller.loadingProgress.value = progress;
-                          },
-                        ),
+                                      );
+                                    } catch (_) {
+                                      // The route may close while the platform executes JavaScript.
+                                    }
+                                  }
+                                },
+                                onProgressChanged: (webController, progress) {
+                                  controller.showLoading.value = progress != 100;
+                                  controller.loadingProgress.value = progress;
+                                },
+                              )
+                            : const Center(child: CircularProgressIndicator()),
                       ),
                     ),
                   ],
@@ -100,7 +107,7 @@ class LoginPage extends StatelessWidget {
             Obx(
               () => Offstage(
                 offstage: controller.pageState.value != PageState.error,
-                child: ErrorMessage(msg: controller.errorMsg, action: () => Get.offAllNamed(RoutePath.welcome), buttonText: "re_login".tr),
+                child: ErrorMessage(msg: controller.errorMsg, action: controller.prepare, buttonText: "re_login".tr),
               ),
             ),
           ],

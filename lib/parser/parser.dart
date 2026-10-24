@@ -387,38 +387,52 @@ class Parser {
       throw StateError('Element with id "content" not found');
     }
 
-    final List<BookshelfNovelInfo> novels = [];
-    final rows = content.getElementsByTagName('tr');
-    for (final row in rows) {
-      if (row.attributes.containsKey('align')) continue;
-      final firstTd = row.getElementsByTagName('td').isNotEmpty ? row.getElementsByTagName('td')[0] : null;
-      if (firstTd != null && firstTd.classes.contains('foot')) continue;
-
-      final bid = row.getElementsByTagName('td')[0].querySelector('input')?.attributes['value'] ?? '';
-
-      final linkEl = row.getElementsByTagName('td')[1].querySelector('a');
-      final bookUrl = linkEl?.attributes['href'] ?? '';
-      final title = linkEl?.text.trim() ?? '';
-
-      final aidStart = bookUrl.indexOf('aid=') + 4;
-      final aidEnd = bookUrl.indexOf('&', aidStart);
-      final aid = aidStart >= 4 && aidEnd > aidStart ? bookUrl.substring(aidStart, aidEnd) : '';
-
-      String imgUrl;
-      if (aid.length <= 3) {
-        imgUrl = 'https://img.wenku8.com/image/0/$aid/${aid}s.jpg';
-      } else {
-        imgUrl = 'https://img.wenku8.com/image/${aid[0]}/$aid/${aid}s.jpg';
-      }
-
-      novels.add(BookshelfNovelInfo(bid: bid, aid: aid, url: bookUrl, title: title, img: imgUrl));
+    if (classId < 0 || classId > 5 || isError(html) || document.querySelector('input[type="password"]') != null) {
+      throw const FormatException('Invalid bookshelf response');
     }
-
-    final gridtop = content.querySelector('div.gridtop')?.text.trim() ?? '';
-    var shelfTitle = gridtop.length > 4 ? gridtop.substring(4) : gridtop;
-    shelfTitle = shelfTitle.split('。').first.trim();
-    shelfTitle = shelfTitle.length > 3 ? shelfTitle.substring(3) : shelfTitle;
-
+    final form = content.querySelectorAll('form').where((form) {
+      final action = form.attributes['action'] ?? '';
+      return Uri.tryParse(action)?.path.endsWith('bookcase.php') == true;
+    }).firstOrNull;
+    if (form == null || form.querySelector('table') == null) {
+      throw const FormatException('Missing bookshelf form');
+    }
+    final novels = <BookshelfNovelInfo>[];
+    final ids = <String>{};
+    for (final row in form.querySelectorAll('tr')) {
+      final inputs = row.querySelectorAll('input[type="checkbox"]');
+      final records = inputs.where((input) => input.attributes['name'] == 'checkid[]').toList();
+      if (records.isEmpty) {
+        final text = row.text.trim();
+        final cells = row.querySelectorAll('td, th');
+        final hasBookLink = row.querySelector('a[href*="aid="]') != null;
+        final header =
+            RegExp(r'书名|書名|小说名称|小說名稱').hasMatch(text) &&
+            (row.attributes.containsKey('align') || row.querySelector('th') != null || cells.any((cell) => cell.classes.contains('head')));
+        final footer = cells.isNotEmpty && cells.first.classes.contains('foot');
+        final emptyNotice = RegExp(r'^(您(的)?(书架|書架)(中)?|本(书架|書架))?.*(没有|沒有|暂无|暫無|尚无|尚無).*(书籍|書籍|小说|小說|收藏)').hasMatch(text);
+        if (hasBookLink || !(header || footer || emptyNotice)) {
+          throw const FormatException('Unrecognized or incomplete bookshelf row');
+        }
+        continue;
+      }
+      if (records.length != 1) throw const FormatException('Invalid bookshelf row');
+      final bid = records.single.attributes['value'] ?? '';
+      final link = row.querySelector('a[href*="aid="]');
+      final url = link?.attributes['href'] ?? '';
+      final aid = Uri.tryParse(url)?.queryParameters['aid'] ?? '';
+      final title = link?.text.trim() ?? '';
+      if (!RegExp(r'^\d+$').hasMatch(bid) || !RegExp(r'^\d+$').hasMatch(aid) || title.isEmpty || !ids.add(aid)) {
+        throw const FormatException('Invalid or duplicate bookshelf record');
+      }
+      final group = int.parse(aid) ~/ 1000;
+      novels.add(BookshelfNovelInfo(bid: bid, aid: aid, url: url, title: title, img: 'https://img.wenku8.com/image/$group/$aid/${aid}s.jpg'));
+    }
+    // An empty result is authoritative only inside a recognizable bookshelf form.
+    final shell = form.text;
+    if (!RegExp(r'书架|書架|书名|書名|小说名称|小說名稱').hasMatch(shell)) {
+      throw const FormatException('Unrecognized bookshelf form');
+    }
     return Bookshelf(list: novels, classId: classId.toString());
   }
 

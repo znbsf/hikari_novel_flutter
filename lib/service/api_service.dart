@@ -14,6 +14,7 @@ import 'package:hikari_novel_flutter/models/resource.dart';
 import '../common/locale.dart';
 import '../common/log.dart';
 import 'local_storage_service.dart';
+import 'site_response.dart';
 
 class ApiService extends GetxService {
   static ApiService get instance => Get.find<ApiService>();
@@ -24,9 +25,9 @@ class ApiService extends GetxService {
 
   Dio get dio => _client.dio;
 
-  void initCookie() => _client.initCookie();
+  Future<void> initCookie() => _client.initCookie();
 
-  void deleteCookie() => _client.deleteCookie();
+  Future<void> deleteCookie() => _client.deleteCookie();
 
   CharsetType get charsetType => charsetForLocale(resolveAppLocale());
 
@@ -208,8 +209,9 @@ class ApiService extends GetxService {
   /// - [aid] 小说id
   /// - [cid] 章节id
   Future<Resource> getNovelContent({required String aid, required String cid}) {
-    final String url = "${wenku8Node.node}/modules/article/reader.php?aid=$aid&cid=$cid";
-    return _client.get(url, charsetType: charsetType);
+    final charset = charsetType;
+    final uri = SiteResponse.withCharset("${wenku8Node.node}/modules/article/reader.php?aid=$aid&cid=$cid", charset);
+    return _client.getChapter(uri, charset);
   }
 
   /// 获取Github上面的最新版本
@@ -219,13 +221,14 @@ class ApiService extends GetxService {
 }
 
 class _ApiClient {
-  final ckjar.CookieJar _cookieJar = ckjar.CookieJar();
+  ckjar.CookieJar _cookieJar = ckjar.CookieJar();
+  late CookieManager _cookieManager = CookieManager(_cookieJar);
   late final Dio dio =
       Dio(BaseOptions(headers: kUserAgent, responseType: ResponseType.bytes, followRedirects: false, validateStatus: (status) => status != null))
         ..interceptors.add(_CloudflareInterceptor())
-        ..interceptors.add(CookieManager(_cookieJar));
+        ..interceptors.add(_cookieManager);
 
-  void initCookie() {
+  Future<void> initCookie() async {
     final localCookie = LocalStorageService.instance.cookie.value;
     if (localCookie == null) return;
 
@@ -234,11 +237,18 @@ class _ApiClient {
       return ckjar.Cookie(kv[0], kv.sublist(1).join('='));
     }).toList();
 
-    _cookieJar.saveFromResponse(Uri.parse(Wenku8Node.wwwWenku8Cc.node), cookies);
-    _cookieJar.saveFromResponse(Uri.parse(Wenku8Node.wwwWenku8Net.node), cookies);
+    await _cookieJar.saveFromResponse(Uri.parse(Wenku8Node.wwwWenku8Cc.node), cookies);
+    await _cookieJar.saveFromResponse(Uri.parse(Wenku8Node.wwwWenku8Net.node), cookies);
   }
 
-  void deleteCookie() => _cookieJar.deleteAll();
+  Future<void> deleteCookie() async {
+    final oldJar = _cookieJar;
+    dio.interceptors.remove(_cookieManager);
+    _cookieJar = ckjar.CookieJar();
+    _cookieManager = CookieManager(_cookieJar);
+    dio.interceptors.add(_cookieManager);
+    await oldJar.deleteAll();
+  }
 
   Future<Resource> getCommonData(String url) async {
     try {
@@ -251,40 +261,22 @@ class _ApiClient {
 
   Future<Resource> get(String url, {required CharsetType charsetType}) async {
     try {
-      if (!url.contains("?")) url += "?";
-      switch (charsetType) {
-        case CharsetType.gbk:
-          url += "&charset=gbk";
-        case CharsetType.big5Hkscs:
-          url += "&charset=big5";
-      }
-
-      Log.d("$url ${charsetType.name}");
-      final response = await dio.get(url);
-      final raw = await _checkRedirects(response) as Uint8List;
-      return Success(_decode(raw, charsetType));
+      return Success(await SiteResponse.get(dio, SiteResponse.withCharset(url, charsetType), charsetType));
     } catch (e) {
       Log.e(e.toString());
       return Error(e.toString());
     }
   }
 
-  String _decode(Uint8List bytes, CharsetType charsetType) => switch (charsetType) {
-    CharsetType.gbk => GbkDecoder().convert(bytes),
-    CharsetType.big5Hkscs => Big5Decoder().convert(bytes),
-  };
-
-  Future<dynamic> _checkRedirects(Response response) async {
-    if (response.statusCode != null && response.statusCode! >= 300 && response.statusCode! < 400) {
-      final location = response.headers.value('location');
-      if (location != null) {
-        final node = LocalStorageService.instance.wenku8Node.value;
-        final redirectedResponse = await dio.get("${node.node}/$location");
-        return redirectedResponse.data;
-      }
+  Future<Resource> getChapter(String uri, CharsetType charset) async {
+    try {
+      return Success(await SiteResponse.get(dio, uri, charset, chapter: true));
+    } catch (e) {
+      return Error(e.toString());
     }
-    return response.data;
   }
+
+  String _decode(Uint8List bytes, CharsetType charsetType) => SiteResponse.decode(bytes, charsetType);
 
   Future<Resource> postForm(String url, {required Object? data, required CharsetType charsetType}) async {
     try {

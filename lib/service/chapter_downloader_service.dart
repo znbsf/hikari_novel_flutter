@@ -1,158 +1,119 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:enough_convert/enough_convert.dart';
 import 'package:get/get.dart' hide Response;
-import 'package:hikari_novel_flutter/common/app_paths.dart';
-import 'package:hikari_novel_flutter/service/api_service.dart';
 
+import '../common/app_paths.dart';
 import '../common/log.dart';
 import '../models/common/charset_type.dart';
 import '../models/common/wenku8_node.dart';
+import 'api_service.dart';
+import 'site_response.dart';
 
 class ChapterDownloaderService extends GetxService {
-  final Dio _dio = ApiService.instance.dio;
+  ChapterDownloaderService({
+    Dio? dio,
+    this._cacheDirectory,
+    String Function()? node,
+    CharsetType Function()? charset,
+    Future<void> Function(File, String)? writeCandidate,
+    void Function(File, String)? commitCandidate,
+    Future<void> Function(Directory)? cleanStaging,
+  }) : _dio = dio ?? ApiService.instance.dio,
+       _node = node ?? (() => ApiService.instance.wenku8Node.node),
+       _charset = charset ?? (() => ApiService.instance.charsetType),
+       _writeCandidate =
+           writeCandidate ??
+           ((file, content) async {
+             await file.writeAsString(content, flush: true);
+           }),
+       _commitCandidate =
+           commitCandidate ??
+           ((file, path) {
+             file.renameSync(path);
+           }),
+       _cleanStaging =
+           cleanStaging ??
+           ((directory) async {
+             await directory.delete(recursive: true);
+           });
 
-  // 存储取消令牌：taskId -> CancelToken
-  final Map<String, CancelToken> _cancelTokens = {};
+  final Future<void> Function(File, String) _writeCandidate;
+  final void Function(File, String) _commitCandidate;
+  final Future<void> Function(Directory) _cleanStaging;
+  final Dio _dio;
+  final Directory? _cacheDirectory;
+  final String Function() _node;
+  final CharsetType Function() _charset;
+  final Map<String, CancelToken> _tasks = {};
+  final Set<String> _chapters = {};
 
-  // 存储下载状态：taskId -> bool (true=下载中)
-  final Map<String, bool> _downloadingStatus = {};
-
-  /// 取消指定任务的下载
-  /// [taskId] 任务唯一标识
-  void cancel(String taskId) {
-    final token = _cancelTokens[taskId];
-    if (token != null && !token.isCancelled) {
-      try {
-        token.cancel('用户主动取消下载');
-        Log.i('任务 $taskId 已取消');
-      } catch (e) {
-        Log.e('取消任务 $taskId 失败: $e');
-      }
-    }
-  }
-
-  /// 清理指定任务的取消令牌（用于下载完成/失败后）
+  void cancel(String taskId) => _tasks[taskId]?.cancel('用户主动取消下载');
+  // An active operation owns its state until its finally has completed.
   void clearCancel(String taskId) {
-    _cancelTokens.remove(taskId);
-    _downloadingStatus.remove(taskId);
+    if (!isDownloading(taskId)) _tasks.remove(taskId);
   }
 
-  /// 检查任务是否正在下载
-  bool isDownloading(String taskId) => _downloadingStatus[taskId] ?? false;
+  bool isDownloading(String taskId) => _tasks.containsKey(taskId);
+  bool isCanceled(String taskId) => _tasks[taskId]?.isCancelled ?? false;
 
-  /// 检查任务是否已取消
-  bool isCanceled(String taskId) {
-    final token = _cancelTokens[taskId];
-    return token?.isCancelled ?? false;
-  }
-
-  /// 下载章节内容并保存到本地
-  /// [taskId] 任务唯一标识
-  /// [aid] 书籍ID
-  /// [cid] 章节ID
-  /// [onProgress] 下载进度回调 (已完成字节数, 总字节数)
   Future<String> download({required String taskId, required String aid, required String cid, Function(int received, int total)? onProgress}) async {
-    // 检查是否已有相同任务在下载
-    if (isDownloading(taskId)) {
-      throw Exception('任务 $taskId 正在下载中，请勿重复下载');
-    }
-
-    // 检查是否已取消
-    if (isCanceled(taskId)) {
-      throw Exception('任务 $taskId 已被取消');
-    }
-
-    // 标记为下载中
-    _downloadingStatus[taskId] = true;
-
-    // 创建取消令牌
-    final cancelToken = CancelToken();
-    _cancelTokens[taskId] = cancelToken;
-
+    if (!RegExp(r'^\d+$').hasMatch(aid) || !RegExp(r'^\d+$').hasMatch(cid)) throw ArgumentError('Invalid chapter identity');
+    final key = '${aid}_$cid';
+    if (_tasks.containsKey(taskId) || _chapters.contains(key)) throw StateError('Chapter or task is already downloading');
+    // Capture preferences before publishing task state or the first await.
+    final charset = _charset();
+    final uri = SiteResponse.withCharset('${_node()}/modules/article/reader.php?aid=$aid&cid=$cid', charset);
+    final token = CancelToken();
+    _tasks[taskId] = token;
+    _chapters.add(key);
+    Directory? staging;
     try {
-      // 获取存储目录
-      final cacheDir = AppPaths.cachedChapterDir;
-      if (!(await cacheDir.exists())) {
-        await cacheDir.create(recursive: true);
-      }
-      final savePath = AppPaths.cachedChapterFile(aid, cid).path;
-
-      final charset = switch (ApiService.instance.charsetType) {
-        CharsetType.gbk => "gbk",
-        CharsetType.big5Hkscs => "big5",
-      };
-      final url = "${ApiService.instance.wenku8Node.node}/modules/article/reader.php?aid=$aid&cid=$cid&charset=$charset";
-
-      Log.d("$url ${ApiService.instance.charsetType.name}");
-
-      // 发起网络请求获取章节内容
-      final Response response = await _dio.get(
-        url,
-        cancelToken: cancelToken,
+      final directory = _cacheDirectory ?? AppPaths.cachedChapterDir;
+      await directory.create(recursive: true);
+      if (token.isCancelled) throw token.cancelError!;
+      final content = await SiteResponse.get(
+        _dio,
+        uri,
+        charset,
+        cancelToken: token,
         onReceiveProgress: (received, total) {
-          // 进度回调
-          if (onProgress != null && total > 0) {
-            onProgress(received, total);
-          }
+          if (total > 0) onProgress?.call(received, total);
         },
+        chapter: true,
       );
-
-      // 检查是否在请求过程中被取消
-      if (cancelToken.isCancelled) {
-        throw DioException(requestOptions: response.requestOptions, type: DioExceptionType.cancel, message: '任务 $taskId 下载过程中被取消');
-      }
-
-      // 解码
-      String content;
-      switch (ApiService.instance.charsetType) {
-        case CharsetType.gbk:
-          {
-            content = GbkCodec().decode(response.data as Uint8List);
-          }
-        case CharsetType.big5Hkscs:
-          {
-            content = Big5Codec().decode(response.data as Uint8List);
-          }
-      }
-
-      // 写入文件（覆盖原有文件）
-      final file = File(savePath);
-      await file.writeAsString(content, flush: true);
-
-      Log.i('章节 $aid-$cid 下载完成，保存路径：$savePath');
-      return savePath;
+      if (token.isCancelled) throw token.cancelError!;
+      // Unique staging lives on the same filesystem. Never delete the old cache.
+      staging = await directory.createTemp('.chapter-');
+      final candidate = File('${staging.path}/$key.tmp');
+      await _writeCandidate(candidate, content);
+      SiteResponse.validateChapter(await candidate.readAsString());
+      if (token.isCancelled) throw token.cancelError!;
+      final destination = File('${directory.path}/$key.txt');
+      // Synchronous commit has no await at which a cancellation can interleave.
+      // File.rename replaces an existing file; failure preserves the destination.
+      _commitCandidate(candidate, destination.path);
+      return destination.path;
     } on DioException catch (e) {
-      // 处理Dio异常（重点处理取消类型）
-      if (e.type == DioExceptionType.cancel) {
-        Log.e('任务 $taskId 被取消: ${e.message}');
-        throw Exception('canceled');
-      } else {
-        Log.e('任务 $taskId 下载失败: ${e.message}');
-        rethrow;
-      }
-    } catch (e) {
-      // 处理其他异常
-      Log.e('任务 $taskId 处理失败: $e');
+      if (e.type == DioExceptionType.cancel) throw Exception('canceled');
       rethrow;
     } finally {
-      // 无论成功/失败/取消，都清理状态
-      _downloadingStatus.remove(taskId);
-      _cancelTokens.remove(taskId);
+      try {
+        if (staging != null && await staging.exists()) await _cleanStaging(staging);
+      } catch (e) {
+        Log.e('Chapter temporary cleanup failed: $e');
+      } finally {
+        if (identical(_tasks[taskId], token)) _tasks.remove(taskId);
+        _chapters.remove(key);
+      }
     }
   }
 
-  /// 取消所有正在进行的下载任务
   void cancelAll() {
-    _cancelTokens.keys.forEach(cancel);
-    _cancelTokens.clear();
-    _downloadingStatus.clear();
+    for (final token in _tasks.values) {
+      token.cancel('用户主动取消下载');
+    }
   }
 
-  /// 清理所有取消令牌和状态
-  void dispose() {
-    cancelAll();
-  }
+  void dispose() => cancelAll();
 }
